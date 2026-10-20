@@ -12,44 +12,37 @@ the notes of the version's GitHub Release.
 
 ### Added
 
-- A working example of scene triggers, scene actions and dashboard widgets
-  (Gladys 5.1.0 or later).
-- `CHANGELOG.md`, rolled by the Release workflow.
-- A GitHub Release for every version, with its changelog section as notes: the
-  Gladys Supervision page links each version to the repository's releases.
-- CI runs the tests on Node 22 and 24, and builds the Docker image.
-- Dependabot keeps the npm dependencies and the GitHub Actions up to date.
-- `SECURITY.md` (how to report a vulnerability) and `CLAUDE.md` (project rules
-  for contributors and coding assistants).
-- Manifest tests: `version` matches `package.json`, `docker_image` is tagged
-  with it, descriptions hold 10 to 100 characters, placeholders are
-  multi-language objects.
-- The latitude and longitude fields show an example value as placeholder.
+- my-PV solar power diverters (AC•THOR, AC•THOR i, AC•THOR 9s, AC ELWA 2,
+  SOL•THOR, HEA•THOR IoT), ported from py-mypv 0.0.14 (Apache-2.0, my-PV
+  GmbH): local first, through the HTTP API of the device, or HTTPS with its
+  password (a login, its cookie, one new login on a 401); the my-PV cloud API
+  (serial number and token) as an option.
+- One device keyed by the serial number (the same locally and through the
+  cloud) with the status, heating power, solar power and voltage, meter power,
+  temperatures 1 to 4, device temperature, hot water charge, heating enabled,
+  boost running, and the hot water and boost setpoints. A republished device
+  never loses a feature.
+- Hot water setpoint and "Start the boost", both off by default behind their
+  own option, capped (55 °C by default, configurable from 40 to 60 °C, never
+  above 60 °C); a boost is refused while the boost setpoint of the device is
+  above the ceiling. Decided on the settings read again just before, the
+  options checked again right before the request leaves, sent within 3.5 s
+  or refused unsent, "sent, without confirmation" when it may have reached the
+  device, then read again 5 and 20 s later.
+- "Stop the boost", always allowed: never refused by an option, a command in
+  flight nor a 429/5xx pause (then one try); it withdraws a start not sent yet
+  and is sent again once a start in flight settles.
+- One request at a time to the device, commands before the reads; a write
+  tried again while the device answers 429 (every 250 ms, within its
+  deadline), as py-mypv.
+- Refused password or token: reads stopped, kept in `/data`, a new try an hour
+  later at most, at once with new credentials or "Test the connection". 429
+  and 5xx: a pause of 1 min to 6 h (Retry-After), kept in `/data`.
+- The self-signed certificate of the device pinned on first use: the password
+  is never sent to another certificate; "Trust the new certificate" button.
+- Status and Discovery sent again at every reconnection to Gladys; transport
+  badge (local, cloud or unreachable).
+- Documentation in English and French; `LICENSE` and `THIRD_PARTY_NOTICES.md`
+  shipped in the image.
 
-### Changed
-
-- Node.js 22 or later is required (Node 20 is end-of-life).
-- Integration SDK 0.15.0. The tests now run against the fake Gladys of the
-  SDK, which refuses the payloads Gladys refuses.
-- The refresh interval is one minute minimum, the fastest Gladys polls a
-  device. The plug's power is only sent when it changes, and every 30
-  minutes otherwise.
-
-### Fixed
-
-- Gladys refused the devices of the Discovery tab: the weather station and
-  the plug declared their poll frequency in seconds instead of one of the
-  values Gladys accepts, and were never polled. They now poll every minute,
-  and the readings follow the refresh interval of the configuration.
-
-- The release commit no longer fails `npm run format:check`: the Release
-  workflow updates the manifest `version` and `docker_image` in place instead
-  of re-printing the whole file with `jq`.
-- The integration can write to `/data`: the image creates the directory owned
-  by the `node` user, a new Docker volume was owned by root.
-- A sub-container running the integration's own image follows it to the new
-  tag at each release, as well as in the manifest of the build summary: it kept
-  the previous tag, which may not exist on the registry. Sub-containers on a
-  third-party image (a broker, a database...) keep theirs.
-
-[Unreleased]: https://github.com/GladysAssistant/integration-template-js/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-my-pv/commits/main

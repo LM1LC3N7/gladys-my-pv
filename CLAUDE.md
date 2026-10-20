@@ -5,72 +5,72 @@ contributors.
 
 ## What this is
 
-A Gladys Assistant **external integration**: a Node.js service (Node 22+, ESM,
-no build step) that runs in its own sandboxed Docker container and talks to
-Gladys through
+A Gladys Assistant **external integration** for my-PV solar power diverters: a
+Node.js service (Node 22+, ESM, no build step) that runs in its own sandboxed
+Docker container and talks to Gladys through
 [`@gladysassistant/integration-sdk`](https://github.com/GladysAssistant/integration-sdk-js),
-its only runtime dependency. It started from the official JavaScript template.
+its only runtime dependency. The my-PV logic is ported from py-mypv
+(Apache-2.0, see `THIRD_PARTY_NOTICES.md`).
 
 ## Commands
 
 ```bash
 npm install
 npm test                                  # node --test, the built-in runner
-node --test test/devices.test.js          # one file
-node --test --test-name-pattern "plug"    # tests whose name matches
+node --test test/app.test.js              # one file
 npm run lint                              # ESLint
 npm run format:check                      # Prettier, as the CI runs it
 npm run format                            # Prettier, fix in place
 npx github:GladysAssistant/integration-store .   # store admission checks
+npm run cover                             # cover.png, 800x534, plain Node
 ```
 
-The CI (`.github/workflows/ci.yml`) runs `format:check`, `lint` and `test` on
-Node 22 and 24, and builds the Docker image: run the three commands before
-pushing.
+The CI runs `format:check`, `lint` and `test` on Node 22 and 24, and builds the
+Docker image.
 
 ## Architecture
 
 ```
-index.js                          SDK wiring only: handlers registered before connect()
-src/devices/index.js              registry of the device blueprints + dispatch helpers
-src/devices/<type>.js             one device type per file (buildDevice, onPoll, onSetValue...)
-src/scenes.js                     scene action handlers (manifest `scene_actions`)
-src/widgets.js                    dashboard widget handlers (manifest `widgets`)
-src/config.js                     DEFAULT_CONFIG (mirrors the manifest defaults) + normalization
-src/weather.js                    example driver (Open-Meteo)
-gladys-assistant-integration.json manifest: name, config_schema, actions, image...
-docs/en.md, docs/fr.md            user documentation, re-hosted by Gladys (mandatory)
-test/                             node --test, against the SDK's fake Gladys (integration-sdk/testing)
-.github/scripts/release.mjs       release helpers (manifest bump, changelog), tested in test/
+index.js               SDK wiring only
+src/handlers.js        the SDK handlers (shared with the end-to-end tests)
+src/app.js             polling, Gladys publication, status, buttons, commands
+src/config.js          DEFAULT_CONFIG (mirrors the manifest) + normalization
+src/constants.js       APIs, feature roles, limits, timings
+src/models.js          py-mypv models and rules, decoding (pure)
+src/devices.js         the Gladys device and its states (pure)
+src/gate.js            one request at a time to the device
+src/mypv/http.js       the only network access (bounded, TLS pinning)
+src/mypv/client.js     local (HTTP/HTTPS) and cloud clients
+src/store.js           /data: pause, refusal, certificate pin, last serial
+src/publisher.js       states within 300 per minute
+src/i18n.js            runtime texts, English and French
+test/fixtures/         fake my-PV device and cloud
 ```
 
 ## Rules
 
-- **External ids are forever.** Build them with
-  `gladys.externalIds(type, platformId)`, `platformId` being the unique id the
-  platform gives the device (serial, cloud id, MAC), never a label. Gladys keys
-  devices, their history, scenes and dashboards on them: changing one creates a
-  new device and orphans the old one. The same goes for every key users store:
-  manifest `config_schema`, `actions`, widget and scene keys, feature keys.
-- **The container rootfs is read-only.** Write only under `/data`, the one
-  writable volume. Never log tokens, passwords or API keys.
-- **Versions belong to the Release workflow** (Actions → Release). Never edit
-  `version` in `package.json` or in the manifest, nor the `docker_image` tag,
-  by hand — except on the README's hand-pushed tag path, which bumps all three
-  together before tagging. `test/manifest.test.js` checks they agree.
-- **Changelog.** Every user-visible change adds a line under `## [Unreleased]`
-  in `CHANGELOG.md` (`### Added`, `Changed`, `Fixed`, `Removed`, `Security`).
-  Never write a version heading: the Release workflow moves the section, and it
-  becomes the notes of the GitHub Release.
-- **Manifest.** Texts are multi-language objects `{ "en": ..., "fr": ... }`:
-  `label`, `description` and `placeholder` alike, never a plain string. The
-  catalog `description` holds 10 to 100 characters per language. A field the
-  older cores do not know needs a higher `gladys_version` minimum
-  (`categories`: 4.86.0; `widgets`, `scene_triggers`, `scene_actions`,
-  `type: "provider"`: 5.1.0). `test/manifest.test.js` ties the manifest to the
-  code (defaults, action, scene and widget handlers): change both sides
-  together.
-- **User-facing text** is bilingual (English and French): action messages,
-  manifest texts, and `docs/en.md` / `docs/fr.md`, kept in sync.
-- **Style.** Prettier formats, ESLint catches mistakes. Comments explain why,
+- **External ids are forever**: `my-pv:<serial in lower case>` and the feature
+  roles of `FEATURES`. Never rename one. A republished device never loses a
+  feature (`keepCreatedFeatures`).
+- **Hot water**: the setpoint and the boost start stay off by default, behind
+  their own option, capped by `DHW_CAP` (55 °C default, 60 °C max), checked on
+  arrival, after the fresh read and in `beforeSend`. "Stop the boost" is never
+  blocked (option, command in flight, pause). Never a `switch` nor a writable
+  `binary`.
+- **Commands** decide on settings read again just before, refuse a missing
+  value, leave within 3.5 s or not at all, and are never announced "not sent"
+  once they may have left ("sent, without confirmation").
+- **Secrets**: the password, the token and the cookies never go in a log, a
+  status, an error or `/data`. A secret field is "kept by Gladys in its
+  database, never shown again": Gladys stores it in clear, so no text may
+  claim otherwise (`test/encoding.test.js` checks it).
+- **Errors**: refused credentials stop the reads (kept in `/data`, one new
+  try an hour); 429/5xx pause every path but the stop (kept in `/data`, 1 min
+  to 6 h); never read sooner than the interval.
+- **Units** only from the core's `DEVICE_FEATURE_UNITS_BY_CATEGORY`.
+- **Versions belong to the Release workflow**; `CHANGELOG.md` under
+  `## [Unreleased]`.
+- **User-facing text** is bilingual (English and French), kept in sync; files
+  are UTF-8 without BOM (`test/encoding.test.js`).
+- **Style**: Prettier formats, ESLint catches mistakes. Comments explain why,
   in English. Tests never touch the network.

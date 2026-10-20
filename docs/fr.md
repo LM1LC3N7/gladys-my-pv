@@ -1,67 +1,101 @@
-# Template de démonstration
+# my-PV
 
-Ceci est la documentation utilisateur de l'intégration. Gladys ré-héberge ce
-fichier et affiche un lien **Documentation** permanent vers lui dans l'écran
-de configuration (dans la langue de l'utilisateur, avec l'anglais en repli) —
-c'est au moment de configurer que l'utilisateur en a le plus besoin. Gardez
-les courtes indications d'accueil dans les blocs `section` du `config_schema`
-du manifest ; mettez ici le pas-à-pas détaillé (captures d'écran, dépannage…).
+Affiche votre routeur solaire my-PV dans Gladys : AC•THOR, AC•THOR i,
+AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR IoT (y compris les versions
+Viessmann, Greenheiss et Tuxhorn). La logique est reprise de
+[py-mypv](https://github.com/my-pv/py-mypv), la bibliothèque officielle de
+my-PV (Apache-2.0), utilisée par Home Assistant.
+
+Intégration non officielle, sans lien avec my-PV. **Jamais testé avec un vrai
+appareil** : les réponses ont été reconstituées à partir de py-mypv. Vos retours
+sont les bienvenus.
 
 ## Ce que vous obtenez
 
-Six appareils de démonstration apparaissent après l'installation : une
-station météo (vraies données Open-Meteo), un interrupteur, une lampe
-variable, une prise connectée avec mesure de puissance, un détecteur de
-mouvement et une caméra.
+Un appareil par routeur, avec, selon ce que votre modèle donne :
 
-## Configuration
+- l'état (veille, chauffe, boost, chauffe terminée, erreur, blocage…) ;
+- la puissance de chauffe (W) ; la puissance et la tension solaires (SOL•THOR) ;
+- la puissance au compteur (« surplus », en W, telle que l'appareil la donne :
+  son signe n'est pas documenté par my-PV) ;
+- les températures 1 à 4 (la sonde 1 est celle du ballon) et la température
+  de l'appareil ;
+- la charge du ballon d'eau chaude (%) ;
+- chauffe activée, boost en cours (lecture seule) ;
+- la consigne d'eau chaude et la consigne du boost ;
+- les boutons « Démarrer le boost » et « Arrêter le boost ».
 
-1. Ouvrez l'onglet **Configuration** de l'intégration.
-2. Renseignez la **latitude** et la **longitude** que la station météo de
-   démonstration doit observer (Paris par défaut), et choisissez votre unité
-   de température. L'**intervalle de rafraîchissement** règle la fréquence
-   de lecture de la station météo et de la puissance de la prise : toutes
-   les 5 minutes par défaut, toutes les minutes au plus.
-3. Enregistrez : les appareils apparaissent dans l'onglet **Découverte**,
-   prêts à être ajoutés.
+Il n'y a pas d'index d'énergie : l'appareil n'en donne pas.
 
-Le réglage **Préférer la connexion locale** pilote la prise de
-démonstration : elle affiche en badge le canal réellement utilisé (local ou
-cloud), avec un point orange quand elle fonctionne en mode dégradé (local
-refusé, bascule cloud).
+## Connexion : le local d'abord
 
-## Actions
+1. Donnez une adresse IP fixe à l'appareil dans votre box.
+2. Dans la configuration de l'intégration, laissez **Connexion** sur
+   « Locale », saisissez l'**adresse IP**.
+3. Si l'interface web de l'appareil demande un mot de passe (micrologiciel
+   récent, en HTTPS), saisissez-le dans **Mot de passe de l'appareil**. Il est
+   gardé par Gladys dans sa base, jamais réaffiché, et envoyé seulement à votre
+   appareil. L'appareil présente un certificat auto-signé : à la première
+   connexion, l'intégration retient son empreinte, et refuse ensuite tout autre
+   certificat (le mot de passe n'est alors pas envoyé). Si vous remplacez ou
+   réinitialisez l'appareil, utilisez le bouton **Faire confiance au nouveau
+   certificat**.
+4. Enregistrez, puis ajoutez l'appareil depuis l'onglet **Découverte**.
 
-- **Tester le fournisseur météo** — effectue une requête en direct vers
-  Open-Meteo et affiche la température et l'humidité actuelles sous le
-  bouton.
-- **Identifier un appareil** — choisissez un de vos appareils dans la liste
-  et il se signale (la lampe de démonstration « clignote » dans les logs).
+Sans mot de passe, l'API locale n'a aucune protection : gardez l'appareil sur
+un réseau de confiance.
 
-## Scènes
+### Le cloud my-PV (facultatif)
 
-L'intégration ajoute ses propres cartes à l'éditeur de scènes (Gladys 5.1
-ou plus récent), dans la catégorie **Intégrations** :
+Seulement si l'appareil n'est pas sur votre réseau : choisissez « Cloud
+my-PV », saisissez le **numéro de série** (affiché sur live.my-pv.com) et un
+**jeton** créé dans votre compte my-PV. Le jeton est gardé par Gladys dans sa
+base, jamais réaffiché, envoyé seulement à api.my-pv.com et jamais écrit dans
+les journaux. Par le cloud, l'appareil est lu au plus une fois par minute.
+L'appareil garde le même identifiant en local et par le cloud : passer de l'un
+à l'autre garde son historique.
 
-- **Mouvement détecté** (déclencheur) — lance la scène quand un détecteur
-  de démonstration voit bouger quelque chose. Choisissez éventuellement le
-  détecteur et ce qui a bougé (personne, animal) ; laissés vides, toute
-  détection correspond. Les actions suivantes peuvent lire ce qui a bougé
-  avec `{{triggerEvent.data.target}}`.
-- **Identifier un appareil** (action) — fait se signaler l'appareil choisi.
-  Elle indique si l'appareil a pu se signaler, pour que les actions
-  suivantes puissent en dépendre.
+## Commandes de l'eau chaude (désactivées par défaut)
 
-## Tableau de bord
+Risque de brûlure : l'eau chaude est **plafonnée à 55 °C par défaut**
+(réglable de 40 à 60 °C, **jamais plus de 60 °C**, quoi qu'on saisisse).
 
-Ajoutez le widget **État de la démo** à un tableau de bord : il affiche en
-direct la température de la station météo et la puissance de la prise du
-bureau, la connexion utilisée par la prise (en orange si dégradée) et la
-position observée. Son bouton **Identifier la lampe** fait se signaler la
-lampe de démonstration.
+- **Autoriser la consigne d'eau chaude** : Gladys peut changer la consigne
+  (degrés entiers, de 10 °C au plafond).
+- **Autoriser le démarrage du boost** : Gladys peut démarrer un boost manuel
+  (chauffe sur le réseau jusqu'à la consigne du boost réglée sur l'appareil).
+  Le démarrage est refusé si cette consigne du boost dépasse le plafond, si le
+  mode boost est désactivé sur l'appareil, si l'appareil est arrêté ou sans
+  sonde 1, ou en mode chauffage (AC•THOR).
+- **Arrêter le boost** est toujours permis, sans option, même quand
+  l'appareil demande de ralentir (un seul essai alors). Il annule un démarrage
+  pas encore envoyé, et il est renvoyé une fois si un démarrage était en cours.
+
+Chaque commande relit les réglages juste avant d'agir, vérifie à nouveau les
+options et le plafond juste avant l'envoi, part dans les 3,5 s ou est refusée
+sans être envoyée. Une commande qui a pu atteindre l'appareil sans réponse
+claire est annoncée « envoyée, sans confirmation », puis l'appareil est relu
+5 et 20 s plus tard. Une seule consigne ou un seul démarrage à la fois.
+
+Les boutons et la consigne ne sont jamais des interrupteurs : un « éteins
+tout » d'un assistant vocal ou d'une scène ne les atteint pas.
+
+Le programme anti-légionelles de l'appareil (qui peut chauffer plus haut) n'est
+pas piloté par Gladys : réglez-le sur l'appareil.
+
+## Erreurs et limites
+
+- Mot de passe ou jeton refusé : les lectures s'arrêtent (l'état est gardé
+  dans /data), nouvel essai au plus une fois par heure, tout de suite si vous
+  changez le mot de passe ou le jeton, ou avec **Tester la connexion**.
+- 429 ou erreur serveur : pause des lectures et des commandes (Retry-After,
+  de 1 min à 6 h, gardée dans /data), sauf « Arrêter le boost ».
+- Appareil injoignable : nouvel essai après 30 s à 5 min, jamais plus vite que
+  l'intervalle.
+- Un AC ELWA 2 en mode de compatibilité AC ELWA-E n'est pas pris en charge
+  (comme dans py-mypv).
 
 ## Dépannage
 
-L'intégration journalise tout ce qu'elle fait : consultez les logs de
-l'intégration depuis l'interface Gladys (ou `docker logs` sur l'hôte) avec
-`LOG_LEVEL=debug` pour le détail complet.
+**Tester la connexion** lit l'appareil et affiche son état. Les journaux de
+l'intégration ne contiennent ni mot de passe, ni jeton, ni cookie.

@@ -1,177 +1,205 @@
 {
   "manifest_version": 1,
   "type": "device",
-  "name": "Demo Devices Template",
+  "name": "my-PV",
   "description": {
-    "en": "Starter template showing sensors, a switch, a dimmable light and a smart plug.",
-    "fr": "Template de démarrage : capteurs, interrupteur, lampe variable et prise connectée."
+    "en": "my-PV solar diverters (AC•THOR, AC ELWA 2), local first: power, tank, optional boost.",
+    "fr": "Routeurs solaires my-PV (AC•THOR, AC ELWA 2), en local : puissance, ballon, boost en option."
   },
-  "version": "1.0.0",
-  "docker_image": "ghcr.io/gladysassistant/integration-template-js:1.0.0",
+  "version": "0.1.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-my-pv:0.1.0",
   "gladys_version": ">=5.1.0",
-  "cover_image": "https://raw.githubusercontent.com/GladysAssistant/integration-template-js/master/cover.png",
-  "categories": ["lighting", "security", "environment"],
+  "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-my-pv/main/cover.png",
+  "categories": ["energy", "climate"],
   "transports": ["local", "cloud"],
   "config_schema": [
     {
       "key": "intro",
       "type": "section",
-      "label": { "en": "Getting started", "fr": "Pour commencer" },
+      "label": { "en": "Your my-PV device", "fr": "Votre appareil my-PV" },
       "description": {
-        "en": "The demo weather station reads real data from the free Open-Meteo API: pick the coordinates to observe. No account, no API key.",
-        "fr": "La station météo de démonstration lit de vraies données via l'API gratuite Open-Meteo : choisissez les coordonnées à observer. Pas de compte, pas de clé d'API."
+        "en": "Shows your my-PV solar power diverter (AC•THOR, AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR) in Gladys: heating power, tank temperatures, meter power, hot water charge and status. Local first: enter the IP address of the device (give it a fixed address in your router), and its password if its web interface has one. The my-PV cloud is optional: choose it only if the device is not on your network. Save, then add the device from the Discovery tab. The hot water setpoint and the boost start are off by default and capped (55 °C by default, never more than 60 °C); stopping the boost is always allowed. Never tested with a real device. Unofficial integration, not affiliated with my-PV.",
+        "fr": "Affiche votre routeur solaire my-PV (AC•THOR, AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR) dans Gladys : puissance de chauffe, températures du ballon, puissance au compteur, charge du ballon et état. Le local d'abord : saisissez l'adresse IP de l'appareil (donnez-lui une adresse fixe dans votre box), et son mot de passe si son interface web en a un. Le cloud my-PV est facultatif : choisissez-le seulement si l'appareil n'est pas sur votre réseau. Enregistrez, puis ajoutez l'appareil depuis l'onglet Découverte. La consigne d'eau chaude et le démarrage du boost sont désactivés par défaut et plafonnés (55 °C par défaut, jamais plus de 60 °C) ; arrêter le boost est toujours permis. Jamais testé avec un vrai appareil. Intégration non officielle, sans lien avec my-PV."
       },
       "links": [
         {
-          "url": "https://open-meteo.com/en/docs",
-          "label": { "en": "Open-Meteo documentation", "fr": "Documentation Open-Meteo" }
+          "url": "https://github.com/LM1LC3N7/gladys-my-pv/blob/main/docs/fr.md",
+          "label": { "en": "Guide (French)", "fr": "Guide (français)" }
+        },
+        {
+          "url": "https://github.com/LM1LC3N7/gladys-my-pv/blob/main/docs/en.md",
+          "label": { "en": "Guide (English)", "fr": "Guide (anglais)" }
         }
       ]
     },
     {
-      "key": "latitude",
-      "type": "number",
-      "label": { "en": "Latitude", "fr": "Latitude" },
-      "description": {
-        "en": "Latitude used for the demo weather sensor.",
-        "fr": "Latitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 48.8566", "fr": "ex. 48.8566" },
-      "required": true,
-      "default": 48.8566,
-      "min": -90,
-      "max": 90
-    },
-    {
-      "key": "longitude",
-      "type": "number",
-      "label": { "en": "Longitude", "fr": "Longitude" },
-      "description": {
-        "en": "Longitude used for the demo weather sensor.",
-        "fr": "Longitude utilisée par le capteur météo de démonstration."
-      },
-      "placeholder": { "en": "e.g. 2.3522", "fr": "ex. 2.3522" },
-      "required": true,
-      "default": 2.3522,
-      "min": -180,
-      "max": 180
-    },
-    {
-      "key": "unit",
+      "key": "connection",
       "type": "select",
-      "label": { "en": "Temperature unit", "fr": "Unité de température" },
+      "label": { "en": "Connection", "fr": "Connexion" },
+      "description": {
+        "en": "Local (recommended): the API of the device on your network, no account. Cloud: api.my-pv.com, with a token of your my-PV account.",
+        "fr": "Locale (recommandée) : l'API de l'appareil sur votre réseau, sans compte. Cloud : api.my-pv.com, avec un jeton de votre compte my-PV."
+      },
       "required": false,
-      "default": "celsius",
+      "default": "local",
       "options": [
-        { "value": "celsius", "label": { "en": "Celsius", "fr": "Celsius" } },
-        { "value": "fahrenheit", "label": { "en": "Fahrenheit", "fr": "Fahrenheit" } }
+        {
+          "value": "local",
+          "label": { "en": "Local (recommended)", "fr": "Locale (recommandée)" }
+        },
+        { "value": "cloud", "label": { "en": "my-PV cloud", "fr": "Cloud my-PV" } }
       ]
     },
     {
-      "key": "poll_frequency",
+      "key": "host",
+      "type": "string",
+      "label": {
+        "en": "IP address of the device (local)",
+        "fr": "Adresse IP de l'appareil (locale)"
+      },
+      "description": {
+        "en": "An IPv4 address or a host name, with an optional port (80 without a password, 443 with one).",
+        "fr": "Une adresse IPv4 ou un nom d'hôte, avec un port en option (80 sans mot de passe, 443 avec)."
+      },
+      "placeholder": { "en": "192.168.1.80", "fr": "192.168.1.80" },
+      "required": false,
+      "default": ""
+    },
+    {
+      "key": "password",
+      "type": "secret",
+      "label": {
+        "en": "Password of the device (local, optional)",
+        "fr": "Mot de passe de l'appareil (local, facultatif)"
+      },
+      "description": {
+        "en": "Only if the web interface of the device asks for one (recent firmware, HTTPS). Kept by Gladys in its database, never shown again, sent only to your device, over HTTPS, after checking its certificate is the one seen at the first connection.",
+        "fr": "Seulement si l'interface web de l'appareil en demande un (micrologiciel récent, HTTPS). Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à votre appareil, en HTTPS, après avoir vérifié que son certificat est celui vu à la première connexion."
+      },
+      "required": false
+    },
+    {
+      "key": "serial_number",
+      "type": "string",
+      "label": { "en": "Serial number (cloud)", "fr": "Numéro de série (cloud)" },
+      "description": {
+        "en": "Only for the cloud connection: the serial number of the device, as shown on live.my-pv.com.",
+        "fr": "Seulement pour la connexion cloud : le numéro de série de l'appareil, tel qu'affiché sur live.my-pv.com."
+      },
+      "placeholder": { "en": "2001001234567890", "fr": "2001001234567890" },
+      "required": false,
+      "default": ""
+    },
+    {
+      "key": "api_token",
+      "type": "secret",
+      "label": { "en": "my-PV cloud token (cloud)", "fr": "Jeton du cloud my-PV (cloud)" },
+      "description": {
+        "en": "Only for the cloud connection: a token created in your my-PV account (live.my-pv.com). Kept by Gladys in its database, never shown again, sent only to api.my-pv.com, never written in the logs.",
+        "fr": "Seulement pour la connexion cloud : un jeton créé dans votre compte my-PV (live.my-pv.com). Gardé par Gladys dans sa base, jamais réaffiché, envoyé seulement à api.my-pv.com, jamais écrit dans les journaux."
+      },
+      "required": false
+    },
+    {
+      "key": "commands_section",
+      "type": "section",
+      "label": { "en": "Hot water commands", "fr": "Commandes de l'eau chaude" },
+      "description": {
+        "en": "By default Gladys only reads the device, and can stop a boost (always allowed, even while the device asks to wait). Once allowed below, it can also change the hot water setpoint and start a boost. Scalding risk: the setpoint is never set above the ceiling, and a boost is refused while the boost setpoint of the device is above it. The legionella programme of the device is not controlled by Gladys.",
+        "fr": "Par défaut Gladys ne fait que lire l'appareil, et peut arrêter un boost (toujours permis, même quand l'appareil demande d'attendre). Une fois autorisé ci-dessous, il peut aussi changer la consigne d'eau chaude et démarrer un boost. Risque de brûlure : la consigne n'est jamais réglée au-dessus du plafond, et un boost est refusé tant que la consigne du boost de l'appareil le dépasse. Le programme anti-légionelles de l'appareil n'est pas piloté par Gladys."
+      }
+    },
+    {
+      "key": "allow_setpoint",
+      "type": "boolean",
+      "label": {
+        "en": "Allow the hot water setpoint",
+        "fr": "Autoriser la consigne d'eau chaude"
+      },
+      "description": {
+        "en": "Off by default. On: Gladys may change the hot water setpoint (ww1target), up to the ceiling below.",
+        "fr": "Désactivé par défaut. Activé : Gladys peut changer la consigne d'eau chaude (ww1target), jusqu'au plafond ci-dessous."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "allow_boost",
+      "type": "boolean",
+      "label": { "en": "Allow starting the boost", "fr": "Autoriser le démarrage du boost" },
+      "description": {
+        "en": "Off by default. On: Gladys may start a manual boost (heating from the grid up to the boost setpoint of the device), only when that setpoint is under the ceiling below.",
+        "fr": "Désactivé par défaut. Activé : Gladys peut démarrer un boost manuel (chauffe sur le réseau jusqu'à la consigne du boost de l'appareil), seulement si cette consigne est sous le plafond ci-dessous."
+      },
+      "required": false,
+      "default": false
+    },
+    {
+      "key": "dhw_max_temperature",
+      "type": "number",
+      "label": { "en": "Hot water ceiling (°C)", "fr": "Plafond de l'eau chaude (°C)" },
+      "description": {
+        "en": "Scalding risk: Gladys never sets the hot water above this temperature. 55 °C by default, from 40 to 60 °C (never more than 60 °C, whatever is typed).",
+        "fr": "Risque de brûlure : Gladys ne règle jamais l'eau chaude au-dessus de cette température. 55 °C par défaut, de 40 à 60 °C (jamais plus de 60 °C, quoi qu'on saisisse)."
+      },
+      "required": false,
+      "default": 55,
+      "min": 40,
+      "max": 60
+    },
+    {
+      "key": "poll_interval",
       "type": "number",
       "label": { "en": "Refresh interval (s)", "fr": "Intervalle de rafraîchissement (s)" },
       "description": {
-        "en": "How often sensors are polled, in seconds (one minute minimum).",
-        "fr": "Fréquence d'interrogation des capteurs, en secondes (une minute minimum)."
+        "en": "How often the device is read, in seconds (60 s at least through the cloud).",
+        "fr": "Fréquence de lecture de l'appareil, en secondes (60 s au moins par le cloud)."
       },
       "required": false,
-      "default": 300,
-      "min": 60,
-      "max": 3600
+      "default": 30,
+      "min": 10,
+      "max": 600
+    },
+    {
+      "key": "language",
+      "type": "select",
+      "label": {
+        "en": "Language of the feature names",
+        "fr": "Langue des noms des fonctionnalités"
+      },
+      "description": {
+        "en": "Used for the names of the features added from now on, for the status texts and for the command errors.",
+        "fr": "Sert aux noms des fonctionnalités ajoutées désormais, aux textes d'état et aux erreurs des commandes."
+      },
+      "required": false,
+      "default": "fr",
+      "options": [
+        { "value": "fr", "label": { "en": "French", "fr": "Français" } },
+        { "value": "en", "label": { "en": "English", "fr": "Anglais" } }
+      ]
     }
   ],
   "actions": [
     {
-      "key": "test_weather",
-      "label": { "en": "Test the weather provider", "fr": "Tester le fournisseur météo" },
+      "key": "test_connection",
+      "label": { "en": "Test the connection", "fr": "Tester la connexion" },
+      "description": {
+        "en": "Reads the device once and shows its state, even after refused credentials.",
+        "fr": "Lit l'appareil une fois et affiche son état, même après des identifiants refusés."
+      },
       "timeout_seconds": 30
     },
     {
-      "key": "identify",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ]
-    }
-  ],
-  "scene_triggers": [
-    {
-      "key": "motion_detected",
-      "label": { "en": "Motion detected", "fr": "Mouvement détecté" },
-      "description": {
-        "en": "A demo motion sensor saw a person or an animal move.",
-        "fr": "Un détecteur de démonstration a vu bouger une personne ou un animal."
+      "key": "trust_certificate",
+      "label": {
+        "en": "Trust the new certificate",
+        "fr": "Faire confiance au nouveau certificat"
       },
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Sensor", "fr": "Détecteur" }
-        },
-        {
-          "key": "target",
-          "type": "multi_select",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" },
-          "options": [
-            { "value": "person", "label": { "en": "Person", "fr": "Personne" } },
-            { "value": "animal", "label": { "en": "Animal", "fr": "Animal" } }
-          ]
-        }
-      ],
-      "variables": [
-        {
-          "key": "target",
-          "type": "string",
-          "label": { "en": "What moved", "fr": "Ce qui a bougé" }
-        }
-      ]
-    }
-  ],
-  "scene_actions": [
-    {
-      "key": "identify_device",
-      "label": { "en": "Identify a device", "fr": "Identifier un appareil" },
       "description": {
-        "en": "Make a device signal itself (the demo light blinks).",
-        "fr": "Fait se signaler un appareil (la lampe de démonstration clignote)."
+        "en": "Only after you replaced or reset the device: accepts the certificate it shows now (local connection with a password).",
+        "fr": "Seulement après avoir remplacé ou réinitialisé l'appareil : accepte le certificat qu'il présente maintenant (connexion locale avec mot de passe)."
       },
-      "timeout_seconds": 15,
-      "fields": [
-        {
-          "key": "device",
-          "type": "select",
-          "source": "devices",
-          "label": { "en": "Device", "fr": "Appareil" },
-          "required": true
-        }
-      ],
-      "outputs": [
-        {
-          "key": "signalled",
-          "type": "boolean",
-          "label": { "en": "Device signalled", "fr": "Appareil signalé" }
-        }
-      ]
-    }
-  ],
-  "widgets": [
-    {
-      "key": "demo_status",
-      "label": { "en": "Demo status", "fr": "État de la démo" },
-      "description": {
-        "en": "Live temperature and plug power, plug connection and observed location.",
-        "fr": "Température et puissance en direct, connexion de la prise, position observée."
-      },
-      "icon": "activity",
-      "action_timeout_seconds": 15
+      "timeout_seconds": 30
     }
   ]
 }

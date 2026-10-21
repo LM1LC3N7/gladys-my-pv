@@ -42,7 +42,11 @@
   settings compared at each read and required by a command (local).
 - **"Stop the boost"** takes the gate when it is free (never waits); sent again
   once if a read shows the boost running within the 90 s guard.
-- **`/data` read once per process** (later saves are not awaited).
+- **`/data` read once per process** (later saves are not awaited); the time of
+  the last read written at most once a minute, moved a minute forward when
+  read back (never later than now).
+- **A command meeting our own stop** (a 429 while it is at the device): refused,
+  no pause (`ownCollision` in `failed` and `commandFailure`).
 - **Credentials refused** (password, token, a device asking for HTTPS without a
   password, a certificate that changed): reads stopped, kept in `/data` for
   that target only (`local:<host>:<port>` / `cloud:<serial>`), a new try an

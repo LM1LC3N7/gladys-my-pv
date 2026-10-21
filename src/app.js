@@ -38,6 +38,7 @@ import {
   DHW_CAP,
   FEATURES as F,
   PRESSED,
+  MINUTE,
   SECOND,
   SETPOINT,
   TIMINGS,
@@ -120,6 +121,9 @@ export class MyPvApp {
     this.ownWriteAt = -Infinity;
     /** Our writes in flight (a 429 to a read meanwhile is ours). */
     this.writing = 0;
+    /** When the time of the last read was last written to /data, and its outcome then. */
+    this.lastSavedAt = -Infinity;
+    this.savedOk = undefined;
     /** "Stop the boost" wanted: { until, resent } (sent again once if a read shows the boost). */
     this.stopWanted = undefined;
   }
@@ -190,6 +194,11 @@ export class MyPvApp {
       // file could be older than the memory.
       this.memory = normalizeMemory(await this.store.load().catch(() => null), this.now());
       this.loaded = true;
+      // Saved at most once a minute: the read may have been up to a minute
+      // later than the file says (never later than now).
+      if (this.memory.last) {
+        this.memory.last.at = Math.min(this.now(), this.memory.last.at + MINUTE);
+      }
     } else {
       this.memory = normalizeMemory(this.memory, this.now());
     }
@@ -334,6 +343,21 @@ export class MyPvApp {
       .catch((err) => this.logger.warn(`setConnectionStatus failed: ${err.message}`));
   }
 
+  /**
+   * The time of the last read goes to /data at most once a minute (an SD
+   * card is not written at every poll), at once when its outcome changes. A
+   * time read back from the file is moved forward by that minute (start).
+   */
+  saveLastRead() {
+    const ok = this.memory.last?.ok;
+    if (this.now() - this.lastSavedAt < MINUTE && ok === this.savedOk) {
+      return;
+    }
+    this.lastSavedAt = this.now();
+    this.savedOk = ok;
+    this.saveMemory();
+  }
+
   async saveMemory() {
     await this.store
       .save(this.memory)
@@ -444,8 +468,9 @@ export class MyPvApp {
       }
       return;
     }
-    this.memory.last = { target: this.target, at: this.now(), ok: false };
-    this.saveMemory();
+    const previous = this.memory.last?.target === this.target ? this.memory.last : undefined;
+    this.memory.last = { target: this.target, at: this.now(), ok: previous?.ok ?? false };
+    this.saveLastRead();
     const timeoutMs = this.timeout;
     const local = this.config.connection === 'local';
     try {
@@ -544,13 +569,19 @@ export class MyPvApp {
     if (wasBlocked) {
       // Read again with these credentials: the refusal is over.
       this.memory.block = null;
+      this.saveMemory();
+    } else {
+      this.saveLastRead();
     }
-    this.saveMemory();
     this.stopIfStillRunning(values);
   }
 
   async failed(dev, err) {
     dev.online = false;
+    if (this.memory.last?.target === this.target && this.memory.last.ok) {
+      this.memory.last.ok = false;
+      this.saveLastRead();
+    }
     if (err.unsupported) {
       dev.unsupported = { kind: err.unsupported, serial: err.serial ?? dev.serial };
       dev.wait = Math.max(this.interval, TIMINGS.unsupportedRetry);
@@ -1080,10 +1111,10 @@ export class MyPvApp {
     // Locally the settings carry the serial number: a command needs it, and
     // the one of the device (another device at the address is never driven).
     const serial = fresh.setup?.serial;
-    if (
-      (serial && platformIdOf(serial) !== id) ||
-      (!serial && this.config.connection === 'local')
-    ) {
+    if (!serial && this.config.connection === 'local') {
+      throw this.refusal(ERRORS.noSerial);
+    }
+    if (serial && platformIdOf(serial) !== id) {
       throw this.refusal(ERRORS.unknownDevice);
     }
     let values;
@@ -1194,7 +1225,8 @@ export class MyPvApp {
 
   /** A failure of a read or a write of a command: the pause and the refusals apply to every path. */
   async commandFailure(err) {
-    if (PAUSING.has(err.kind)) {
+    // A 429 the device gave because our own stop was at it: refused, no pause.
+    if (PAUSING.has(err.kind) && !this.ownCollision(err)) {
       await this.pause(err);
       this.updateStatus().catch(() => {});
     } else if (BLOCKING.has(err.kind)) {
@@ -1291,7 +1323,7 @@ export class MyPvApp {
    * would answer that read 429).
    */
   async writeStop({ startBy, answerBy }) {
-    const release = this.gate.tryAcquire();
+    let release = this.gate.tryAcquire();
     this.writing += 1;
     try {
       return await this.client.write(WRITABLE.BOOST, 0, {
@@ -1299,6 +1331,10 @@ export class MyPvApp {
         answerBy,
         // During a pause: one try.
         retryBusy: !this.paused,
+        // Before each try: the gate is taken as soon as it is free.
+        beforeSend: () => {
+          release ??= this.gate.tryAcquire();
+        },
       });
     } finally {
       this.writing -= 1;

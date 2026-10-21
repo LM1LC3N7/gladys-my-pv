@@ -68,6 +68,10 @@ Scalding risk: hot water is **capped at 55 °C by default** (from 40 to 60 °C,
   sent once more when a start was in flight, or when a read still shows the
   boost running (within 90 s).
 
+Locally, a command needs the settings of the device to give its serial number
+(`serialno`): if your firmware does not, the commands are refused with a
+message that says so (please report it, with the firmware version).
+
 Each command reads the settings again just before acting, checks the options
 and the ceiling again right before sending, leaves within 3.5 s or is refused
 unsent. A command that may have reached the device without a clear answer is

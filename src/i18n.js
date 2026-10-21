@@ -229,6 +229,10 @@ export const ERRORS = {
     'This device is not the one read now (device not answering, or another device): not sent.',
     "Cet appareil n'est pas celui lu actuellement (appareil sans réponse, ou autre appareil) : non envoyée.",
   ),
+  noSerial: both(
+    'The settings of the device carry no serial number (serialno): Gladys cannot check it is the device read, so it sends no command locally. Please report your firmware version. Not sent.',
+    "Les réglages de l'appareil ne donnent pas de numéro de série (serialno) : Gladys ne peut pas vérifier que c'est bien l'appareil lu, et n'envoie donc aucune commande en local. Merci de signaler votre version de micrologiciel. Non envoyée.",
+  ),
   stillRunning: both(
     'Another command to the device is still running: not sent.',
     "Une autre commande vers l'appareil est encore en cours : non envoyée.",

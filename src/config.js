@@ -6,7 +6,7 @@
 
 import { isIP } from 'node:net';
 import { CONNECTIONS, DHW_CAP, LIMITS, POLL_INTERVAL } from './constants.js';
-import { isUnicastIPv4 } from './mypv/http.js';
+import { isDeviceIPv4 } from './mypv/http.js';
 
 /** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULT_CONFIG = {
@@ -51,8 +51,8 @@ export function parseAddress(raw) {
     return undefined;
   }
   if (isIP(host) === 4) {
-    // A device address only: never loopback, multicast, broadcast nor 0/8.
-    return isUnicastIPv4(host) ? { host, port } : undefined;
+    // A device address only: never loopback, multicast, 0/8 nor 240/4.
+    return isDeviceIPv4(host) ? { host, port } : undefined;
   }
   if (/^[\d.]+$/.test(host)) {
     return undefined;

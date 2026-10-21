@@ -19,7 +19,7 @@
 //     request is written: the password never reaches another device.
 //
 // A host name is resolved to IPv4 unicast addresses only; IPv4 literals are
-// checked by the configuration (src/config.js, isUnicastIPv4).
+// checked by the configuration (src/config.js, isDeviceIPv4).
 // -----------------------------------------------------------------------------
 
 import { lookup as dnsLookup } from 'node:dns';
@@ -90,6 +90,19 @@ export function isUnicastIPv4(address) {
   }
   const [a, , , d] = address.split('.').map(Number);
   return a !== 0 && a !== 127 && a < 224 && d !== 255;
+}
+
+/**
+ * An IPv4 address typed for a device: not 0/8, 127/8 (loopback), 224/4
+ * multicast nor 240/4 (255.255.255.255 included). An address ending in .255
+ * is a device in a network larger than a /24: accepted when typed.
+ */
+export function isDeviceIPv4(address) {
+  if (net.isIP(address) !== 4) {
+    return false;
+  }
+  const [a] = address.split('.').map(Number);
+  return a !== 0 && a !== 127 && a < 224;
 }
 
 /** A `lookup` for node:http: IPv4 only, unicast addresses only. */

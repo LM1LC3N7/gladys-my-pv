@@ -72,6 +72,11 @@ Risque de brûlure : l'eau chaude est **plafonnée à 55 °C par défaut**
   pas encore envoyé, et il est renvoyé une fois si un démarrage était en cours,
   ou si une relecture montre encore le boost en marche (dans les 90 s).
 
+En local, une commande exige que les réglages de l'appareil donnent son numéro
+de série (`serialno`) : si votre micrologiciel ne le donne pas, les commandes
+sont refusées avec un message qui le dit (signalez-le, avec la version du
+micrologiciel).
+
 Chaque commande relit les réglages juste avant d'agir, vérifie à nouveau les
 options et le plafond juste avant l'envoi, part dans les 3,5 s ou est refusée
 sans être envoyée. Une commande qui a pu atteindre l'appareil sans réponse

@@ -29,9 +29,19 @@ test('the address: IPv4 or host name, optional port, a pasted URL reduced', () =
     'a_b',
     'u:p@h',
     '[::1]',
+    '127.0.0.1',
+    '0.0.0.0',
+    '224.0.0.1',
+    '240.0.0.1',
+    '255.255.255.255',
   ]) {
     assert.equal(parseAddress(bad), undefined, bad);
   }
+  assert.deepEqual(
+    parseAddress('10.0.1.255'),
+    { host: '10.0.1.255', port: undefined },
+    'a /16 device',
+  );
   assert.deepEqual(normalizeConfig({ host: 'a_b' }).invalid, { field: 'host', typed: 'a_b' });
   assert.equal(normalizeConfig({ host: '' }).invalid, undefined);
 });

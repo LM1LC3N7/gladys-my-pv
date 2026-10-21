@@ -477,3 +477,55 @@ test('M9 /data is read once: a save just before a new configuration is never los
   await settle();
   assert.equal(loads, 1);
 });
+
+test('F a stop still at the device when a setpoint reads: our own 429 never pauses', async (t) => {
+  const server = fakeMyPv();
+  const store = memoryStore();
+  let armed = false;
+  const transport = busyDevice(server, (o) => {
+    if (!armed) return 0;
+    if (o.path === '/data.jsn') return 500; // the poll read at 30 s
+    if (o.path === '/setup.jsn?bststrt=0') return 800;
+    return 0;
+  });
+  const { send, advance, gladys } = await setup(t, {
+    config: { host: HOST, allow_setpoint: true },
+    server,
+    store,
+    transport,
+  });
+  armed = true;
+  await advance(30_000, 500); // the poll at 30 s: its data read holds the device 0.5 s
+  await advance(100, 100);
+  const stop = send('boost-stop'); // 30.1 s: the gate is busy, the stop goes without it
+  await advance(600, 50); // its new try at ~30.6 s is at the device until ~31.4 s
+  const setpoint = send('target-temperature', 45);
+  await advance(6000, 100);
+  await stop;
+  const result = await setpoint;
+  assert.equal(
+    store.data?.pause ?? null,
+    null,
+    `paused by our own stop (setpoint: ${result.error})`,
+  );
+  assert.doesNotMatch(gladys.fake.connectionStatus?.message?.fr ?? '', /pause/);
+});
+test('/data: the time of the last read is written at most once a minute', async (t) => {
+  const server = fakeMyPv();
+  const store = memoryStore();
+  const { advance } = await setup(t, { config: { host: HOST, poll_interval: 10 }, server, store });
+  const saves = store.saves;
+  await advance(10 * MINUTE, 10 * SECOND);
+  // 60 reads in 10 minutes: about 10 writes, never one per read.
+  assert.ok(store.saves - saves <= 11, `${store.saves - saves} writes in 10 min`);
+});
+
+test('a local command without serialno in the settings: refused with its own message', async (t) => {
+  const server = fakeMyPv();
+  const { press } = await setup(t, { config: { host: HOST, allow_setpoint: true }, server });
+  delete server.device.setup.serialno;
+  const ack = await press('target-temperature', 45);
+  assert.equal(ack.success, false);
+  assert.match(ack.error, /serialno/);
+  assert.deepEqual(server.writes(), []);
+});

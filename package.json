@@ -1,6 +1,6 @@
 {
   "name": "gladys-my-pv",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Gladys Assistant external integration for my-PV solar power diverters (AC•THOR, AC ELWA 2, SOL•THOR, HEA•THOR), over the local HTTP API of the device or the optional my-PV cloud API: heating power, tank temperatures, meter power, status, optional capped hot water setpoint and boost. Unofficial, not affiliated with my-PV.",
   "type": "module",

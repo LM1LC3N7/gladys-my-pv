@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-21
+
 ### Added
 
 - my-PV solar power diverters (AC•THOR, AC•THOR i, AC•THOR 9s, AC ELWA 2,
@@ -73,4 +75,5 @@ the notes of the version's GitHub Release.
   pause;
   pm audit fix (dev dependencies).
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-my-pv/commits/main
+[Unreleased]: https://github.com/LM1LC3N7/gladys-my-pv/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/LM1LC3N7/gladys-my-pv/releases/tag/v0.1.1

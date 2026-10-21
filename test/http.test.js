@@ -3,7 +3,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import https from 'node:https';
+import tls from 'node:tls';
 import { ERROR_KINDS, isUnicastIPv4, notSent, request } from '../src/mypv/http.js';
+import { selfSigned } from './fixtures/selfSigned.js';
 
 async function serve(t, handler) {
   const server = http.createServer(handler);
@@ -81,4 +84,79 @@ test('unicast addresses only for host names', () => {
   ]) {
     assert.ok(!isUnicastIPv4(bad), bad);
   }
+});
+
+// --- TLS on the loopback (a certificate made in JS): the pinned path ------------------
+
+const login = (port, trust) =>
+  request({
+    protocol: 'https',
+    host: '127.0.0.1',
+    port,
+    path: '/auth.jsn',
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'pw=secret',
+    timeoutMs: 3000,
+    trust,
+  });
+
+const listen = (server) =>
+  new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+
+test('pinned TLS: the request goes through the checked TLS socket only, never in clear', async (t) => {
+  const a = selfSigned('device-a', 1);
+  const bodies = [];
+  const plain = [];
+  const server = https.createServer({ key: a.key, cert: a.cert }, (req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => {
+      bodies.push(body);
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end('{"auth":1}');
+    });
+  });
+  server.on('tlsClientError', (e) => plain.push(e.code));
+  const port = await listen(server);
+  t.after(() => server.close());
+  const pins = [];
+  const first = await login(port, { pin: undefined, onPin: (fp) => pins.push(fp) });
+  assert.equal(first.status, 200);
+  assert.deepEqual(pins, [a.fingerprint], 'pinned on first use');
+  const again = await login(port, { pin: a.fingerprint, onPin: () => pins.push('x') });
+  assert.equal(again.status, 200);
+  assert.deepEqual(bodies, ['pw=secret', 'pw=secret']);
+  assert.deepEqual(plain, [], 'nothing reached the TLS port in clear text');
+  assert.equal(pins.length, 1);
+});
+
+test('pinned TLS: another certificate, or a self-signed one for the cloud: nothing written', async (t) => {
+  const a = selfSigned('device-a', 1);
+  const b = selfSigned('device-b', 2);
+  let bytes = 0;
+  const server = tls.createServer({ key: b.key, cert: b.cert }, (socket) => {
+    socket.on('data', (c) => (bytes += c.length));
+    socket.on('error', () => {});
+  });
+  const plain = [];
+  server.on('tlsClientError', (e) => plain.push(e.code));
+  const port = await listen(server);
+  t.after(() => server.close());
+  await assert.rejects(login(port, { pin: a.fingerprint, onPin: () => {} }), (e) => {
+    assert.equal(e.kind, ERROR_KINDS.TLS_CHANGED);
+    assert.ok(notSent(e));
+    return true;
+  });
+  await assert.rejects(login(port, 'verify'), (e) => {
+    assert.equal(e.kind, ERROR_KINDS.TLS_UNTRUSTED);
+    assert.ok(notSent(e));
+    return true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(bytes, 0, 'bytes reached the other certificate');
+  assert.deepEqual(
+    plain.filter((c) => c === 'ERR_SSL_HTTP_REQUEST'),
+    [],
+  );
 });

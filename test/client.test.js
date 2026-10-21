@@ -77,7 +77,11 @@ test('local HTTPS: one login, its cookie, one new login on a 401, never a third 
   assert.equal(requests[1].headers.Cookie, 'sid=abc');
   assert.deepEqual(await client.readSetup({ timeoutMs: 1000 }), { devmode: 0 });
   assert.equal(requests[4].headers.Cookie, 'sid=def');
-  await assert.rejects(client.readSetup({ timeoutMs: 1000 }), (e) => e.kind === ERROR_KINDS.AUTH);
+  // Refused again after an accepted login: not "password refused", and no third try.
+  await assert.rejects(
+    client.readSetup({ timeoutMs: 1000 }),
+    (e) => e.kind === ERROR_KINDS.HTTP && e.status === 401,
+  );
   assert.equal(requests.length, 8);
 });
 

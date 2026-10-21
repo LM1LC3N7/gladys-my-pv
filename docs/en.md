@@ -65,7 +65,8 @@ Scalding risk: hot water is **capped at 55 °C by default** (from 40 to 60 °C,
   (AC•THOR).
 - **Stop the boost** is always allowed, without option, even while the device
   asks to slow down (then one try). It withdraws a start not sent yet, and is
-  sent once more when a start was in flight.
+  sent once more when a start was in flight, or when a read still shows the
+  boost running (within 90 s).
 
 Each command reads the settings again just before acting, checks the options
 and the ceiling again right before sending, leaves within 3.5 s or is refused
@@ -83,9 +84,15 @@ controlled by Gladys: set it on the device.
 
 - Password or token refused: the reads stop (kept in /data), a new try once
   an hour at most, at once when you change the password or the token, or with
-  **Test the connection**.
+  **Test the connection**. A refused command (401/403 to a write) never stops
+  the reads.
 - 429 or a server error: reads and commands paused (Retry-After, 1 min to
-  6 h, kept in /data), except "Stop the boost".
+  6 h, 1 min without Retry-After locally, kept in /data), except "Stop the
+  boost". Through the cloud, a 429 to a command is never sent again and
+  pauses too.
+- Never a read sooner than the interval, even after a restart, a save or a
+  click on **Test the connection** (only a new address, password or token
+  reads at once).
 - Device unreachable: a new try after 30 s to 5 min, never sooner than the
   interval.
 - An AC ELWA 2 in an AC ELWA-E compatibility mode is not supported (as in
@@ -93,5 +100,6 @@ controlled by Gladys: set it on the device.
 
 ## Troubleshooting
 
-**Test the connection** reads the device and shows its state. The logs of the
+**Test the connection** reads the device and shows its state (or, before the
+interval, the last state and when the next read comes). The logs of the
 integration never hold a password, a token nor a cookie.

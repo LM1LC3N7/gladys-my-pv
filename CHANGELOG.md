@@ -45,4 +45,32 @@ the notes of the version's GitHub Release.
 - Documentation in English and French; `LICENSE` and `THIRD_PARTY_NOTICES.md`
   shipped in the image.
 
+### Fixed
+
+- Local HTTPS: the request now goes through the TLS connection whose
+  certificate was checked; it went on a second, plain connection, so the
+  password left in clear text and the mode never worked (gent: false
+  made node ignore the pinned socket). Tested on a TLS server on the loopback.
+- Cloud: a 429 to a command is never sent again and pauses every path (only
+  the local device's 429 means "busy").
+- A 401/403 to a write no longer stops the reads as "credentials refused";
+  only a refused login, a device asking for a password or a changed
+  certificate do, and "Stop the boost" never pushes that refusal further.
+- Never a read sooner than the interval after the last one, even after a
+  restart, a save or "Test the connection" (kept in /data); new
+  credentials or a new address read at once.
+- "Stop the boost" after a start that lands late: sent again with its own
+  429 tries, and once more if a read still shows the boost within 90 s; it
+  holds the gate when free, and a 429 it causes never pauses the
+  integration (1 min without Retry-After locally).
+- One absolute deadline for the login, the request and its new try: an ack
+  never comes after the 5 s of Gladys.
+- The boost ceiling checked again right before every try; the setpoints
+  read outside 5 to 95 °C (py-mypv) are missing; the identity read at every
+  local poll and needed by a command; the pause tied to its target; the 8
+  newest certificate pins kept; IPv4 literals must be device addresses;
+  /data read once per process; the device shown after a restart during a
+  pause;
+  pm audit fix (dev dependencies).
+
 [Unreleased]: https://github.com/LM1LC3N7/gladys-my-pv/commits/main

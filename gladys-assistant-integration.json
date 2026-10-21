@@ -184,8 +184,8 @@
       "key": "test_connection",
       "label": { "en": "Test the connection", "fr": "Tester la connexion" },
       "description": {
-        "en": "Reads the device once and shows its state, even after refused credentials.",
-        "fr": "Lit l'appareil une fois et affiche son état, même après des identifiants refusés."
+        "en": "Reads the device once and shows its state, even after refused credentials; never sooner than the refresh interval after the last read.",
+        "fr": "Lit l'appareil une fois et affiche son état, même après des identifiants refusés ; jamais plus tôt que l'intervalle de rafraîchissement après la dernière lecture."
       },
       "timeout_seconds": 30
     },

@@ -137,8 +137,6 @@ export const TIMINGS = {
   /** The publisher sends what is pending every second; unchanged states again every 30 min. */
   flushInterval: SECOND,
   stateHeartbeat: 30 * MINUTE,
-  /** The "Test the connection" button reads the device at most this often. */
-  testCooldown: 10 * SECOND,
   /**
    * Commands (Gladys waits 5 s for the ack): the fresh read and the write
    * must leave by 3.5 s after the click, or the command is refused unsent;

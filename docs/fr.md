@@ -69,7 +69,8 @@ Risque de brûlure : l'eau chaude est **plafonnée à 55 °C par défaut**
   sonde 1, ou en mode chauffage (AC•THOR).
 - **Arrêter le boost** est toujours permis, sans option, même quand
   l'appareil demande de ralentir (un seul essai alors). Il annule un démarrage
-  pas encore envoyé, et il est renvoyé une fois si un démarrage était en cours.
+  pas encore envoyé, et il est renvoyé une fois si un démarrage était en cours,
+  ou si une relecture montre encore le boost en marche (dans les 90 s).
 
 Chaque commande relit les réglages juste avant d'agir, vérifie à nouveau les
 options et le plafond juste avant l'envoi, part dans les 3,5 s ou est refusée
@@ -87,9 +88,15 @@ pas piloté par Gladys : réglez-le sur l'appareil.
 
 - Mot de passe ou jeton refusé : les lectures s'arrêtent (l'état est gardé
   dans /data), nouvel essai au plus une fois par heure, tout de suite si vous
-  changez le mot de passe ou le jeton, ou avec **Tester la connexion**.
+  changez le mot de passe ou le jeton, ou avec **Tester la connexion**. Un
+  refus d'une commande (401/403 sur une écriture) n'arrête pas les lectures.
 - 429 ou erreur serveur : pause des lectures et des commandes (Retry-After,
-  de 1 min à 6 h, gardée dans /data), sauf « Arrêter le boost ».
+  de 1 min à 6 h, 1 min sans Retry-After en local, gardée dans /data), sauf
+  « Arrêter le boost ». Par le cloud, un 429 sur une commande n'est jamais
+  renvoyé et met aussi en pause.
+- Jamais de lecture plus rapide que l'intervalle, même après un redémarrage,
+  un enregistrement ou un clic sur **Tester la connexion** (seuls une nouvelle
+  adresse, un nouveau mot de passe ou un nouveau jeton lisent tout de suite).
 - Appareil injoignable : nouvel essai après 30 s à 5 min, jamais plus vite que
   l'intervalle.
 - Un AC ELWA 2 en mode de compatibilité AC ELWA-E n'est pas pris en charge
@@ -97,5 +104,6 @@ pas piloté par Gladys : réglez-le sur l'appareil.
 
 ## Dépannage
 
-**Tester la connexion** lit l'appareil et affiche son état. Les journaux de
+**Tester la connexion** lit l'appareil et affiche son état (ou, avant
+l'intervalle, le dernier état et l'heure de la prochaine lecture). Les journaux de
 l'intégration ne contiennent ni mot de passe, ni jeton, ni cookie.

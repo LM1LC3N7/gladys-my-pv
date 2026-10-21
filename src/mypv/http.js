@@ -19,7 +19,7 @@
 //     request is written: the password never reaches another device.
 //
 // A host name is resolved to IPv4 unicast addresses only; IPv4 literals are
-// checked by the configuration.
+// checked by the configuration (src/config.js, isUnicastIPv4).
 // -----------------------------------------------------------------------------
 
 import { lookup as dnsLookup } from 'node:dns';
@@ -168,6 +168,8 @@ export function request({
         socket?.destroy();
         reject(error);
       } else {
+        // Connection: close: the pinned TLS socket is never kept either.
+        socket?.destroy();
         resolve(value);
       }
     };
@@ -196,7 +198,6 @@ export function request({
         host,
         port,
         path,
-        agent: false,
         headers: {
           Connection: 'close',
           Accept: 'application/json, text/plain, */*',
@@ -206,13 +207,18 @@ export function request({
       };
       let lib = protocol === 'https' ? https : http;
       if (createConnection) {
+        // The pinned TLS socket. Never with gent: false: node then ignores
+        // createConnection and opens a second, plain TCP connection (the
+        // password would leave in clear text).
         lib = http;
         options.createConnection = createConnection;
       } else if (protocol === 'https') {
+        options.agent = false;
         options.servername = net.isIP(host) ? undefined : host;
         options.rejectUnauthorized = true;
         options.lookup = unicastLookupOr(host);
       } else {
+        options.agent = false;
         options.lookup = unicastLookupOr(host);
       }
       req = lib.request(options, (res) => {

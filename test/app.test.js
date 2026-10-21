@@ -150,15 +150,16 @@ test('one read: the device, its features, then its states', async (t) => {
   assert.match(message(gladys).en, /Connected: AC•THOR 2001001234567890 \(local\)/);
 });
 
-test('the settings are read on every 6th poll, the measures on every poll', async (t) => {
+test('the settings are read on every 6th poll, the identity and the measures on every poll', async (t) => {
   const { server, advance } = await setup(t);
   server.requests.length = 0;
   await advance(5 * 30 * SECOND);
   assert.deepEqual(
-    server.paths().filter((p) => p !== 'GET /data.jsn'),
+    server.paths().filter((p) => p !== 'GET /data.jsn' && p !== 'GET /mypv_dev.jsn'),
     [],
-    'polls 2 to 6: data only',
+    'polls 2 to 6: identity and data only',
   );
+  assert.equal(server.paths().filter((p) => p === 'GET /mypv_dev.jsn').length, 5);
   await advance(30 * SECOND);
   assert.ok(server.paths().includes('GET /setup.jsn'));
 });
@@ -355,7 +356,7 @@ test('a 429 on a read pauses every path but the stop, kept in /data', async (t) 
 
 test('the pause survives a restart, bounded', async (t) => {
   const server = fakeMyPv();
-  const store = memoryStore({ pause: { until: NOW + 100 * HOUR } });
+  const store = memoryStore({ pause: { target: `local:${HOST}:80`, until: NOW + 100 * HOUR } });
   const { gladys } = await setup(t, { server, store });
   assert.deepEqual(server.requests, []);
   assert.match(message(gladys).en, /paused for 6 h/);

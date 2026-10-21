@@ -165,7 +165,11 @@ export const T = {
       ),
   },
   test: {
-    cooldown: both('Tested less than 10 s ago.', 'Testé il y a moins de 10 s.'),
+    notYet: (wait) =>
+      both(
+        `Never read sooner than the refresh interval: next read in ${wait.en}.`,
+        `Jamais de lecture plus rapide que l'intervalle de rafraîchissement : prochaine lecture dans ${wait.fr}.`,
+      ),
   },
   trust: {
     done: both(

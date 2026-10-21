@@ -28,14 +28,28 @@
 - **Buttons, never switches** (`button/push`); boost running and heating
   enabled are read-only `unknown/binary`; devmode (device on/off) is read only
   in v1: turning it on would be a sensitive command for little use.
-- **429 on a write** = device busy, not applied: tried again every 250 ms, 10
-  tries at most, never after the deadline (py-mypv). It does not start a
-  pause; a 429 or a 5xx on a read does (1 min to 6 h, `/data`).
+- **429 on a write**: locally the device is busy, not applied: tried again
+  every 250 ms, 10 tries at most, never after the deadline (py-mypv), no
+  pause. Through the cloud it is a rate limit: one try, and the pause (as
+  py-mypv, which never retries there). A 429 or a 5xx on a read pauses
+  (1 min to 6 h, `/data`, tied to its target; 1 min without Retry-After
+  locally), except a local 429 right after one of our own writes.
+- **Never sooner than the interval** (review 1, I3): the start of the last read
+  per target is kept in `/data`; restarts, saves and the button wait for it.
+  New credentials, a new address, "Trust the new certificate" read at once;
+  the two reads after a command (5 and 20 s) are the only exception.
+- **Identity**: `/mypv_dev.jsn` at every local poll, the `serialno` of the
+  settings compared at each read and required by a command (local).
+- **"Stop the boost"** takes the gate when it is free (never waits); sent again
+  once if a read shows the boost running within the 90 s guard.
+- **`/data` read once per process** (later saves are not awaited).
 - **Credentials refused** (password, token, a device asking for HTTPS without a
   password, a certificate that changed): reads stopped, kept in `/data` for
   that target only (`local:<host>:<port>` / `cloud:<serial>`), a new try an
   hour later at most; a new password or token clears it at once; "Test the
-  connection" tries once (a click, never a loop). The password and token are
+  connection" tries once (a click, never a loop) once the interval passed.
+  Only a refused login (`auth` 0) means a wrong password: a 401 after an
+  accepted login or a 401/403 to a write is a refused request. The password and token are
   never written in `/data` (not even a hash).
 - **TLS**: py-mypv does not check the self-signed certificate of the device;
   here it is pinned on first use (fingerprint in `/data`), handshake checked

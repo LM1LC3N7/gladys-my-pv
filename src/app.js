@@ -59,7 +59,10 @@ import { decode, integerOf, modelOf, parseData, parseSetup } from './models.js';
 import { CloudClient, LocalClient, errorReason } from './mypv/client.js';
 import { ERROR_KINDS, notSent } from './mypv/http.js';
 import { StatePublisher } from './publisher.js';
-import { fileStore, normalizeMemory } from './store.js';
+import { fileStore, normalizeMemory, setNewest } from './store.js';
+
+/** A 429 of the local device this soon after one of our own requests: our own collision. */
+const OWN_COLLISION = 5 * SECOND;
 
 /** The kinds of refusal that stop the reads until a new try (kept in /data). */
 const BLOCKING = new Set([ERROR_KINDS.AUTH, ERROR_KINDS.NEEDS_PASSWORD, ERROR_KINDS.TLS_CHANGED]);
@@ -100,7 +103,6 @@ export class MyPvApp {
     this.lastStatus = undefined;
     this.published = undefined;
     this.badge = undefined;
-    this.lastTestAt = -Infinity;
     /** platform id -> the roles seen during this run (a feature never disappears). */
     this.seen = new Map();
     /** The setpoint or start in flight: { role, seq, sent, promise }. */
@@ -112,6 +114,14 @@ export class MyPvApp {
     this.lastStartSent = 0;
     /** `${id}:target|boost` -> { from, expected, moved, until }: a command sent, not seen yet. */
     this.guards = new Map();
+    /** /data is read once, at the first start: the memory is the truth afterwards. */
+    this.loaded = false;
+    /** When our last write to the device ended (a 429 right after it is ours). */
+    this.ownWriteAt = -Infinity;
+    /** Our writes in flight (a 429 to a read meanwhile is ours). */
+    this.writing = 0;
+    /** "Stop the boost" wanted: { until, resent } (sent again once if a read shows the boost). */
+    this.stopWanted = undefined;
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -161,7 +171,7 @@ export class MyPvApp {
       pin: {
         get: () => this.memory.pins[target],
         set: (fingerprint) => {
-          this.memory.pins[target] = fingerprint;
+          setNewest(this.memory.pins, target, fingerprint);
           this.logger.info('my-PV: certificate of the device pinned (first connection)');
           this.saveMemory();
         },
@@ -175,7 +185,14 @@ export class MyPvApp {
     this.stop();
     await previous?.running;
     this.config = normalizeConfig(raw);
-    this.memory = normalizeMemory(await this.store.load().catch(() => null), this.now());
+    if (!this.loaded) {
+      // Once per process: later saves are never awaited, a new read of the
+      // file could be older than the memory.
+      this.memory = normalizeMemory(await this.store.load().catch(() => null), this.now());
+      this.loaded = true;
+    } else {
+      this.memory = normalizeMemory(this.memory, this.now());
+    }
     // A refusal kept in /data only applies to the same device or account.
     if (this.memory.block && this.memory.block.target !== this.target) {
       this.memory.block = null;
@@ -190,6 +207,15 @@ export class MyPvApp {
       // The serial last read at this address: the device of "Stop the boost"
       // until the first read.
       this.dev.knownSerial = this.memory.serials[this.target];
+    }
+    // The last read of this target succeeded: the device is shown (status,
+    // Discovery) from its serial kept, until the next read is due.
+    const last = this.memory.last;
+    const kept = this.memory.serials[this.target] ?? this.dev?.serial;
+    if (this.dev && last?.target === this.target && last.ok && kept && modelOf(kept)) {
+      this.dev.serial = kept;
+      this.dev.model = modelOf(kept);
+      this.dev.restored = true;
     }
     this.published = undefined;
     this.badge = undefined;
@@ -268,13 +294,16 @@ export class MyPvApp {
   async configUpdated(raw = {}) {
     if (this.needsRestart(raw)) {
       const next = normalizeConfig(raw);
-      if (
-        this.memory.block &&
-        (next.password !== this.config.password ||
-          next.token !== this.config.token ||
-          targetKey(next) !== this.memory.block.target)
-      ) {
+      const newCredentials =
+        next.password !== this.config.password || next.token !== this.config.token;
+      if (this.memory.block && (newCredentials || targetKey(next) !== this.memory.block.target)) {
         this.memory.block = null;
+        await this.saveMemory();
+      }
+      if (newCredentials && this.memory.last) {
+        // New credentials are tried at once; a new interval alone waits for
+        // the last read + the new interval, a new address reads its target.
+        this.memory.last = null;
         await this.saveMemory();
       }
       await this.start(raw);
@@ -317,8 +346,16 @@ export class MyPvApp {
     return this.config.pollInterval * SECOND;
   }
 
+  /** A pause of this target (the cloud's never stops the local device, nor the other way). */
   get paused() {
-    return Boolean(this.memory.pause && this.now() < this.memory.pause.until);
+    const pause = this.memory.pause;
+    return Boolean(pause && pause.target === this.target && this.now() < pause.until);
+  }
+
+  /** No read of this target before the last one + the interval (restarts and clicks included). */
+  get due() {
+    const last = this.memory.last;
+    return last && last.target === this.target ? last.at + this.interval : -Infinity;
   }
 
   /** The refusal in force for this target, if any (even once its time to try again came). */
@@ -352,13 +389,13 @@ export class MyPvApp {
   }
 
   /** One read at a time: a tick during a read joins it. */
-  tick({ force = false } = {}) {
+  tick({ force = false, followUp = false } = {}) {
     const dev = this.dev;
     if (!dev) {
       return Promise.resolve();
     }
     if (!dev.running) {
-      dev.running = this.run(dev, { force }).finally(() => {
+      dev.running = this.run(dev, { force, followUp }).finally(() => {
         dev.running = undefined;
       });
     }
@@ -370,7 +407,7 @@ export class MyPvApp {
     if (this.dev?.running) {
       await this.dev.running.catch(() => {});
     }
-    return this.tick();
+    return this.tick({ followUp: true });
   }
 
   /** One request through the gate (one at a time to the device). */
@@ -386,23 +423,54 @@ export class MyPvApp {
    * `force`: a click on "Test the connection" tries once even during a
    * refusal (a click, never a loop); a 429 pause is always waited out.
    */
-  async run(dev, { force = false } = {}) {
+  async run(dev, { force = false, followUp = false } = {}) {
     const generation = this.generation;
     const block = this.block;
     if (this.paused || (block && this.now() < block.until && !force)) {
-      await this.updateStatus();
-      this.schedule();
+      // Nothing read, but the device kept (Discovery, badge, status) is shown.
+      await this.publishAll();
+      if (generation === this.generation) {
+        this.schedule();
+      }
       return;
     }
+    // Never sooner than the interval after the last read of this target,
+    // whatever restarted or clicked; only the two reads after a command go
+    // sooner (their effect, then a check).
+    if (!followUp && this.now() < this.due) {
+      await this.publishAll();
+      if (generation === this.generation) {
+        this.schedule(this.due - this.now());
+      }
+      return;
+    }
+    this.memory.last = { target: this.target, at: this.now(), ok: false };
+    this.saveMemory();
     const timeoutMs = this.timeout;
+    const local = this.config.connection === 'local';
     try {
-      if (dev.online !== true || dev.setupDue || dev.polls % TIMINGS.setupEvery === 0) {
+      const full = dev.online !== true || dev.setupDue || dev.polls % TIMINGS.setupEvery === 0;
+      // Locally the identification is read at every poll (one small request):
+      // another device answering at the address is never shown as the first one.
+      if (full || local) {
         const identity = await this.request(() => this.client.identify({ timeoutMs }));
         if (generation !== this.generation) return;
         this.identified(dev, identity);
+      }
+      if (full) {
         const raw = await this.request(() => this.client.readSetup({ timeoutMs }));
         if (generation !== this.generation) return;
-        dev.setup = parseSetup(raw);
+        const setup = parseSetup(raw);
+        if (
+          setup?.serial &&
+          dev.serial &&
+          platformIdOf(setup.serial) !== platformIdOf(dev.serial)
+        ) {
+          dev.setup = undefined;
+          dev.values = undefined;
+          throw Object.assign(new Error('serial mismatch'), { kind: ERROR_KINDS.PROTOCOL });
+        }
+        dev.setup = setup;
         dev.setupDue = false;
       }
       const raw = await this.request(() => this.client.readData({ timeoutMs }));
@@ -442,11 +510,12 @@ export class MyPvApp {
     if (firmware) {
       dev.firmware = firmware;
     }
-    if (this.config.connection === 'local' && this.memory.serials[this.target] !== serial) {
-      this.memory.serials[this.target] = serial;
+    if (this.memory.serials[this.target] !== serial) {
+      setNewest(this.memory.serials, this.target, serial);
       this.saveMemory();
     }
     dev.knownSerial = serial;
+    dev.restored = false;
   }
 
   /** A read answered: the values, and the guards they may lift. */
@@ -467,12 +536,17 @@ export class MyPvApp {
     dev.error = undefined;
     dev.errorKind = undefined;
     dev.unsupported = undefined;
+    dev.restored = false;
     this.observe(values);
+    if (this.memory.last?.target === this.target) {
+      this.memory.last.ok = true;
+    }
     if (wasBlocked) {
       // Read again with these credentials: the refusal is over.
       this.memory.block = null;
-      this.saveMemory();
     }
+    this.saveMemory();
+    this.stopIfStillRunning(values);
   }
 
   async failed(dev, err) {
@@ -487,7 +561,7 @@ export class MyPvApp {
     const reason = errorReason(err);
     dev.error = reason;
     dev.errorKind = err.kind;
-    if (PAUSING.has(err.kind)) {
+    if (PAUSING.has(err.kind) && !this.ownCollision(err)) {
       await this.pause(err);
       this.logger.warn(`my-PV: ${reason}, pause`);
       return;
@@ -507,14 +581,33 @@ export class MyPvApp {
     this.logger.warn(`my-PV: ${reason}; next try in ${Math.round(wait / 1000)} s`);
   }
 
-  /** A 429 or a 5xx: every path but "Stop the boost" waits, kept in /data. */
+  /**
+   * A 429 of the local device just after one of our own writes (a stop goes
+   * without waiting for the reads): the device was busy with us, read again at
+   * the next interval, no pause.
+   */
+  ownCollision(err) {
+    return (
+      err.kind === ERROR_KINDS.RATE_LIMITED &&
+      this.config.connection === 'local' &&
+      (this.writing > 0 || this.now() - this.ownWriteAt < OWN_COLLISION)
+    );
+  }
+
+  /**
+   * A 429 or a 5xx: every path but "Stop the boost" waits, kept in /data for
+   * this target. Retry-After, bounded to 1 min .. 6 h; without it, 1 min for
+   * the local device (busy), 5 min for the cloud.
+   */
   async pause(err) {
+    const fallback = this.config.connection === 'local' ? TIMINGS.pauseMin : TIMINGS.pauseDefault;
     const wait = Math.min(
       TIMINGS.pauseMax,
-      Math.max(TIMINGS.pauseMin, this.interval, err.retryAfter ?? TIMINGS.pauseDefault),
+      Math.max(TIMINGS.pauseMin, this.interval, err.retryAfter ?? fallback),
     );
-    const until = Math.max(this.memory.pause?.until ?? 0, this.now() + wait);
-    this.memory.pause = { until };
+    const previous = this.memory.pause?.target === this.target ? this.memory.pause.until : 0;
+    const until = Math.max(previous, this.now() + wait);
+    this.memory.pause = { target: this.target, until };
     await this.saveMemory();
   }
 
@@ -598,7 +691,9 @@ export class MyPvApp {
   /** The Discovery list: the device last identified (even unreachable now). */
   async publishDevices() {
     const dev = this.dev;
-    if (!dev?.serial || !dev.model || !dev.values) {
+    // Also before the first read after a restart (the serial kept): the
+    // features of the created device are sent again as they are.
+    if (!dev?.serial || !dev.model) {
       return;
     }
     const id = platformIdOf(dev.serial);
@@ -724,6 +819,10 @@ export class MyPvApp {
       return [false, T.unreachable(place, dev.error, age(dev.wait))];
     }
     if (!this.live) {
+      if (dev.restored && dev.online === undefined) {
+        // Restarted after a read that succeeded: shown connected until the next one.
+        return [true, T.connected(dev.model.name, dev.serial, c.connection)];
+      }
       return [false, T.connecting];
     }
     const notes = [];
@@ -775,11 +874,12 @@ export class MyPvApp {
     if (!this.client) {
       return this.status()[1];
     }
-    if (this.now() - this.lastTestAt < TIMINGS.testCooldown && this.now() >= this.lastTestAt) {
+    // Never sooner than the interval: the last state, and when the next read comes.
+    if (this.now() < this.due) {
       const last = this.lastMessage();
-      return last ? join([T.test.cooldown, last]) : T.test.cooldown;
+      const next = T.test.notYet(age(this.due - this.now()));
+      return last ? join([next, last]) : next;
     }
-    this.lastTestAt = this.now();
     if (this.dev.running) {
       await this.dev.running.catch(() => {});
     }
@@ -796,6 +896,8 @@ export class MyPvApp {
     }
     delete this.memory.pins[target];
     this.memory.block = null;
+    // A choice of the user, like new credentials: read now.
+    this.memory.last = null;
     await this.saveMemory();
     this.logger.info('my-PV: the pinned certificate was forgotten by the user');
     if (this.dev) {
@@ -893,6 +995,12 @@ export class MyPvApp {
     if (role === F.BOOST_START && this.lastStop > entry.seq) {
       throw this.refusal(ERRORS.stopMeanwhile);
     }
+    // The boost heats up to the setpoint read just before: never above the
+    // ceiling of now (it may have been lowered meanwhile).
+    const cap = Math.min(this.config.dhwCap, DHW_CAP.max);
+    if (role === F.BOOST_START && entry.boostTarget !== undefined && entry.boostTarget > cap) {
+      throw this.refusal(ERRORS.boostAboveCap(entry.boostTarget, cap));
+    }
     if (this.paused) {
       throw this.refusal(ERRORS.paused(age(this.memory.pause.until - this.now())));
     }
@@ -938,14 +1046,14 @@ export class MyPvApp {
 
   /** The reads of a command, just before acting (the gate is held). */
   async freshRead(role, readBy) {
-    const left = () => Math.max(TIMINGS.commandMinRead, readBy - this.now());
-    const setup = parseSetup(await this.client.readSetup({ timeoutMs: left() }));
+    // One absolute deadline: a login or a new try inside never extends it.
+    const setup = parseSetup(await this.client.readSetup({ answerBy: readBy }));
     if (this.now() > readBy) {
       throw Object.assign(new Error('late'), { kind: ERROR_KINDS.LATE });
     }
     let data = this.dev.data;
     if (role === F.BOOST_START) {
-      data = parseData(await this.client.readData({ timeoutMs: left() }), this.dev.model);
+      data = parseData(await this.client.readData({ answerBy: readBy }), this.dev.model);
       if (this.now() > readBy) {
         throw Object.assign(new Error('late'), { kind: ERROR_KINDS.LATE });
       }
@@ -969,7 +1077,13 @@ export class MyPvApp {
     if (generation !== this.generation || this.dev !== dev || !this.live) {
       throw this.refusal(ERRORS.unknownDevice);
     }
-    if (fresh.setup?.serial && platformIdOf(fresh.setup.serial) !== id) {
+    // Locally the settings carry the serial number: a command needs it, and
+    // the one of the device (another device at the address is never driven).
+    const serial = fresh.setup?.serial;
+    if (
+      (serial && platformIdOf(serial) !== id) ||
+      (!serial && this.config.connection === 'local')
+    ) {
       throw this.refusal(ERRORS.unknownDevice);
     }
     let values;
@@ -991,6 +1105,7 @@ export class MyPvApp {
     if (!plan) {
       return undefined;
     }
+    entry.boostTarget = plan.boostTarget;
     // The options may have changed during the read: checked again.
     this.checkBeforeSend(generation, target, wanted, entry);
     if (this.now() > sendBy) {
@@ -1002,11 +1117,12 @@ export class MyPvApp {
       this.lastStartSent = Math.max(this.lastStartSent, entry.seq);
     }
     let result;
+    this.writing += 1;
     try {
       result = await this.client.write(plan.key, plan.value, {
         startBy: sendBy,
         answerBy: received + TIMINGS.commandAnswerBy,
-        // The very last check, right before the request leaves.
+        // The very last check, right before each request leaves (tries included).
         beforeSend: () => this.checkBeforeSend(generation, target, wanted, entry),
       });
     } catch (err) {
@@ -1015,6 +1131,9 @@ export class MyPvApp {
         throw err;
       }
       return this.writeFailed(err, { plan, entry });
+    } finally {
+      this.writing -= 1;
+      this.ownWriteAt = this.now();
     }
     // Accepted (the settings echoed, or "ok"): the effect is checked by the reads after it.
     this.guard(id, plan);
@@ -1064,7 +1183,13 @@ export class MyPvApp {
     if (values.boostActive === 1 && !this.guardActive(id, 'boost')) {
       return undefined;
     }
-    return { kind: 'boost', key: WRITABLE.BOOST, value: 1, from: values.boostActive };
+    return {
+      kind: 'boost',
+      key: WRITABLE.BOOST,
+      value: 1,
+      from: values.boostActive,
+      boostTarget: values.boostTarget,
+    };
   }
 
   /** A failure of a read or a write of a command: the pause and the refusals apply to every path. */
@@ -1086,18 +1211,25 @@ export class MyPvApp {
       entry.sent = false;
       throw this.refusal(err.kind === ERROR_KINDS.LATE ? ERRORS.tooSlow : ERRORS.notSent(reason));
     }
-    if (BLOCKING.has(err.kind)) {
-      // The login or the write was refused: not applied.
+    if (this.refusesCredentials(err)) {
+      // The login was refused: the write never left.
       entry.sent = false;
       await this.commandFailure(err);
       throw this.refusal(ERRORS.blocked);
     }
     if (err.kind === ERROR_KINDS.RATE_LIMITED) {
-      // Still busy after the tries: not applied.
+      // Not applied: still busy after the tries (local), or a rate limit of
+      // the cloud, which pauses every path like a read.
       entry.sent = false;
+      if (this.config.connection === 'cloud') {
+        await this.pause(err);
+        this.updateStatus().catch(() => {});
+      }
       throw this.refusal(ERRORS.refused(reason));
     }
-    if (err.kind === ERROR_KINDS.HTTP && err.status < 500) {
+    if (err.kind === ERROR_KINDS.AUTH || (err.kind === ERROR_KINDS.HTTP && err.status < 500)) {
+      // A refused write (a token without write access, a key refused): the
+      // reads keep going.
       entry.sent = false;
       this.followUp();
       throw this.refusal(ERRORS.refused(reason));
@@ -1114,6 +1246,19 @@ export class MyPvApp {
   }
 
   /**
+   * Only a refused login (a password `auth` 0), a device asking for a
+   * password or a changed certificate stop the reads; a cloud token refused
+   * on a read too (src/app.js failed). A 401/403 to a write never does.
+   */
+  refusesCredentials(err) {
+    return (
+      (err.kind === ERROR_KINDS.AUTH && err.login === true) ||
+      err.kind === ERROR_KINDS.NEEDS_PASSWORD ||
+      err.kind === ERROR_KINDS.TLS_CHANGED
+    );
+  }
+
+  /**
    * "Stop the boost": never refused by an option, a command in flight nor a
    * pause (then one try, no retry). No fresh read: stopping is harmless.
    */
@@ -1123,6 +1268,9 @@ export class MyPvApp {
     if (!this.client || !known || platformIdOf(known) !== id) {
       throw this.refusal(ERRORS.unknownDevice);
     }
+    // Wanted for the time of a guard: a read that still shows the boost
+    // (a start that landed late) sends it once more.
+    this.stopWanted = { until: this.now() + TIMINGS.guard, resent: false };
     const running = this.inFlight?.role === F.BOOST_START ? this.inFlight : undefined;
     const plan = { kind: 'boost', key: WRITABLE.BOOST, value: 0, from: undefined };
     try {
@@ -1137,34 +1285,58 @@ export class MyPvApp {
     return undefined;
   }
 
+  /**
+   * One stop write. It never waits for the gate, but takes it when it is free
+   * so that no read of the polling starts while it is at the device (which
+   * would answer that read 429).
+   */
+  async writeStop({ startBy, answerBy }) {
+    const release = this.gate.tryAcquire();
+    this.writing += 1;
+    try {
+      return await this.client.write(WRITABLE.BOOST, 0, {
+        startBy,
+        answerBy,
+        // During a pause: one try.
+        retryBusy: !this.paused,
+      });
+    } finally {
+      this.writing -= 1;
+      this.ownWriteAt = this.now();
+      release?.();
+    }
+  }
+
   async sendStop(received) {
-    const generation = this.generation;
-    const paused = this.paused;
     this.logger.info(`my-PV boost-stop: ${WRITABLE.BOOST}=0`);
     try {
-      await this.client.write(WRITABLE.BOOST, 0, {
+      await this.writeStop({
         startBy: received + TIMINGS.commandSendBy,
         answerBy: received + TIMINGS.commandAnswerBy,
-        // During a pause: one try.
-        retryBusy: !paused,
       });
     } catch (err) {
       const reason = errorReason(err);
       this.logger.warn(`my-PV boost-stop failed (${reason})`);
-      if (generation !== this.generation) {
-        throw this.refusal(ERRORS.unknownDevice);
-      }
+      // Classified on what happened to the request, whatever restarted meanwhile.
       if (notSent(err)) {
         throw this.refusal(err.kind === ERROR_KINDS.LATE ? ERRORS.tooSlow : ERRORS.notSent(reason));
       }
-      if (BLOCKING.has(err.kind)) {
-        await this.commandFailure(err);
+      if (this.refusesCredentials(err)) {
+        // Never pushes a refusal in force further away.
+        if (!this.block) {
+          await this.commandFailure(err);
+        }
         throw this.refusal(ERRORS.blocked);
       }
-      if (
-        err.kind === ERROR_KINDS.RATE_LIMITED ||
-        (err.kind === ERROR_KINDS.HTTP && err.status < 500)
-      ) {
+      if (err.kind === ERROR_KINDS.RATE_LIMITED) {
+        if (this.config.connection === 'cloud') {
+          await this.pause(err);
+          this.updateStatus().catch(() => {});
+        }
+        this.followUp();
+        throw this.refusal(ERRORS.refused(reason));
+      }
+      if (err.kind === ERROR_KINDS.AUTH || (err.kind === ERROR_KINDS.HTTP && err.status < 500)) {
         this.followUp();
         throw this.refusal(ERRORS.refused(reason));
       }
@@ -1180,7 +1352,8 @@ export class MyPvApp {
   /**
    * A stop that arrived while a start was in flight: once the start settles,
    * if it may have reached the device and no newer start left since, the
-   * stop is sent once more (one try).
+   * stop is sent once more, its 429 tried again within its own 3.5 s (one
+   * try during a pause).
    */
   stopAgain(running, seq) {
     const generation = this.generation;
@@ -1196,16 +1369,37 @@ export class MyPvApp {
         }
         this.logger.warn('my-PV: boost stop sent again after the start in flight');
         const now = this.now();
-        await this.client.write(WRITABLE.BOOST, 0, {
+        await this.writeStop({
           startBy: now + TIMINGS.commandSendBy,
           answerBy: now + TIMINGS.commandAnswerBy,
-          retryBusy: false,
         });
         this.followUp();
       })
       .catch((err) => this.logger.warn(`my-PV boost stop again failed (${errorReason(err)})`));
   }
 
+  /**
+   * A read that shows the boost running while a stop is wanted (within the
+   * guard, no start sent after it): the stop is sent once more, logged.
+   */
+  stopIfStillRunning(values) {
+    const wanted = this.stopWanted;
+    if (!wanted || wanted.resent || this.now() >= wanted.until) {
+      return;
+    }
+    if (values.boostActive !== 1 || this.lastStartSent > this.lastStop) {
+      return;
+    }
+    wanted.resent = true;
+    this.logger.warn('my-PV: the boost still runs after "Stop the boost": stop sent once more');
+    const now = this.now();
+    this.writeStop({
+      startBy: now + TIMINGS.commandSendBy,
+      answerBy: now + TIMINGS.commandAnswerBy,
+    })
+      .then(() => this.followUp())
+      .catch((err) => this.logger.warn(`my-PV boost stop again failed (${errorReason(err)})`));
+  }
   /** Reads after a command, spaced: its effect, then a check; the settings are read too. */
   followUp() {
     const dev = this.dev;

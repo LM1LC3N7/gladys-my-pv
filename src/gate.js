@@ -46,6 +46,15 @@ export class Gate {
     });
   }
 
+  /** The gate when it is free now (a release function), else undefined: never waits. */
+  tryAcquire() {
+    if (this.busy) {
+      return undefined;
+    }
+    this.busy = true;
+    return this.releaser();
+  }
+
   releaser() {
     let done = false;
     return () => {

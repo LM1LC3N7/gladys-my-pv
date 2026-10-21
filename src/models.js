@@ -139,8 +139,9 @@ export function parseSetup(raw) {
     bstmode: integerOf(own(setup, 'bstmode')),
     /** Whether the device has a boost mode at all (the key is there). */
     hasBoostMode: own(setup, 'bstmode') !== undefined,
-    target: scaled(setup, 'ww1target', 10, 0, 100),
-    boostTarget: scaled(setup, 'ww1boost', 10, 0, 100),
+    // py-mypv declares 5 to 95 °C (000000.json): anything else is missing.
+    target: scaled(setup, 'ww1target', 10, 5, 95),
+    boostTarget: scaled(setup, 'ww1boost', 10, 5, 95),
     mainmode: integerOf(own(setup, 'mainmode')),
     compmode: integerOf(own(setup, 'compmode')),
     firmware: textOf(own(setup, 'fwversion')),

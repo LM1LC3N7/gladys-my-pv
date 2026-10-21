@@ -5,13 +5,18 @@
 //
 // Changed from py-mypv:
 //   - one request at a time is enforced by the app (src/app.js), not here;
-//   - reads are never retried here (the app spaces its new tries); a write
-//     is tried again only while the device answers 429 ("busy": it was not
-//     applied), every 250 ms, 10 tries at most and never after its deadline
-//     (py-mypv's _handle_rate_limiting); never on any other answer;
+//   - reads are never retried here (the app spaces its new tries); a local
+//     write is tried again only while the device answers 429 ("busy": it was
+//     not applied), every 250 ms, 10 tries at most and never after its
+//     deadline (py-mypv's _handle_rate_limiting); never on any other answer,
+//     and never through the cloud, whose 429 is a rate limit (py-mypv does
+//     not retry there either);
 //   - a 401 makes one new login, then one new try, never more (py-mypv's
-//     _handle_reauthentication); a refused login is final until the app
-//     tries again later;
+//     _handle_reauthentication). Locally, only a refused login (`auth` not 1)
+//     says the password is wrong; a 401 after an accepted login or a 403 is a
+//     refused request;
+//   - one absolute deadline per call: the login, the request and its new try
+//     each get the time left when they leave (under 200 ms: not sent);
 //   - no redirect is followed: a device that sends plain HTTP to HTTPS asks
 //     for a password ("needs_password");
 //   - the password, the token and the cookies never appear in an error, a
@@ -90,17 +95,36 @@ function runBeforeSend(beforeSend) {
   }
 }
 
-/** What both clients share: the deadline checks and the busy retries of a write. */
+/** What both clients share: the deadlines and the busy retries of a write. */
 class BaseClient {
   constructor({ transport = httpRequest, now = Date.now, sleep = wait }) {
     this.transport = transport;
     this.now = now;
     this.sleep = sleep;
+    /** A 429 to a write means "busy, not applied", tried again: local only. */
+    this.busyRetries = false;
+  }
+
+  /** The absolute deadline of a call: `answerBy`, else now + `timeoutMs`. */
+  deadlineOf({ answerBy, timeoutMs }) {
+    return answerBy ?? this.now() + timeoutMs;
   }
 
   /**
-   * One write, tried again only while the device answers 429 (not applied).
-   * `startBy`: nothing leaves after it (LATE). `retryBusy`: false for one try.
+   * The time left for one request, counted when it leaves (a login or a new
+   * try before it may have taken some): under 200 ms, it does not leave.
+   */
+  timeLeft(deadline) {
+    const left = deadline - this.now();
+    if (!(left >= 200)) {
+      throw new MyPvError(ERROR_KINDS.LATE, 'No time left to send');
+    }
+    return left;
+  }
+
+  /**
+   * One write. `startBy`: nothing leaves after it (LATE); `answerBy`: the
+   * answer is awaited until then. `retryBusy`: false for one try.
    */
   async write(key, value, { startBy, answerBy, retryBusy = true, beforeSend }) {
     if (!Number.isInteger(value) || value < 0 || value > 1000) {
@@ -111,15 +135,12 @@ class BaseClient {
         throw new MyPvError(ERROR_KINDS.LATE, 'Too late to send');
       }
       try {
-        return await this.writeOnce(key, value, {
-          timeoutMs: Math.max(200, answerBy - this.now()),
-          startBy,
-          beforeSend,
-        });
+        return await this.writeOnce(key, value, { answerBy, startBy, beforeSend });
       } catch (err) {
         const again =
           err.kind === ERROR_KINDS.RATE_LIMITED &&
           retryBusy &&
+          this.busyRetries &&
           tries < TIMINGS.busyTries &&
           this.now() + TIMINGS.busyRetry <= startBy;
         if (!again) {
@@ -147,6 +168,7 @@ export class LocalClient extends BaseClient {
     this.port = address.port ?? (this.secure ? LOCAL_HTTPS_PORT : LOCAL_HTTP_PORT);
     this.pin = pin;
     this.authed = false;
+    this.busyRetries = true;
     /** name=value of the cookies the device set at login (memory only). */
     this.cookies = new Map();
     this.label = `${this.host}${address.port ? `:${address.port}` : ''}`;
@@ -183,7 +205,7 @@ export class LocalClient extends BaseClient {
     method = 'GET',
     path,
     body,
-    timeoutMs,
+    deadline,
     contentType,
     startBy = Infinity,
     beforeSend,
@@ -192,6 +214,7 @@ export class LocalClient extends BaseClient {
     if (this.now() > startBy) {
       throw new MyPvError(ERROR_KINDS.LATE, 'Too late to send');
     }
+    const timeoutMs = this.timeLeft(deadline);
     // The very last check of a command, right before its request leaves.
     runBeforeSend(beforeSend);
     const response = await this.transport({
@@ -215,14 +238,14 @@ export class LocalClient extends BaseClient {
   }
 
   /** POST /auth.jsn: `{"auth": 1}` or the password is refused. */
-  async login(timeoutMs, startBy) {
+  async login(deadline, startBy) {
     this.cookies.clear();
     const response = await this.send({
       method: 'POST',
       path: PATHS.auth,
       body: `pw=${encodeURIComponent(this.password)}`,
       contentType: 'application/x-www-form-urlencoded',
-      timeoutMs,
+      deadline,
       startBy,
     });
     if (response.status === 429 || response.status >= 500) {
@@ -239,16 +262,18 @@ export class LocalClient extends BaseClient {
     }
     if (!ok) {
       this.authed = false;
-      throw new MyPvError(ERROR_KINDS.AUTH, 'Password refused');
+      // The only answer that says the password is refused.
+      throw new MyPvError(ERROR_KINDS.AUTH, 'Password refused', { login: true });
     }
     this.keepCookies(response);
     this.authed = true;
   }
 
   /** A request, logged in first when a password is set; one new login on a 401. */
-  async call(options) {
+  async call(request) {
+    const options = { ...request, deadline: this.deadlineOf(request) };
     if (this.secure && !this.authed) {
-      await this.login(options.timeoutMs, options.startBy);
+      await this.login(options.deadline, options.startBy);
     }
     let response = await this.send(options);
     if (response.status === 401) {
@@ -257,22 +282,28 @@ export class LocalClient extends BaseClient {
       }
       // The device lost the login (a 401 was not applied): one new login, one new try.
       this.authed = false;
-      await this.login(options.timeoutMs, options.startBy);
+      await this.login(options.deadline, options.startBy);
       response = await this.send(options);
       if (response.status === 401) {
-        // Logged in, refused again: never a third try.
-        throw new MyPvError(ERROR_KINDS.AUTH, 'HTTP 401', { status: 401 });
+        // Logged in, refused again: never a third try, and not "password
+        // refused" (the login was accepted).
+        throw new MyPvError(ERROR_KINDS.HTTP, 'HTTP 401', { status: 401 });
       }
     }
     if (response.status < 200 || response.status > 299) {
-      throw statusError(response, this.now());
+      const err = statusError(response, this.now());
+      if (err.kind === ERROR_KINDS.AUTH) {
+        // A 403: a refused request, not refused credentials.
+        throw new MyPvError(ERROR_KINDS.HTTP, err.message, { status: err.status });
+      }
+      throw err;
     }
     return response;
   }
 
   /** GET /mypv_dev.jsn: { serial, firmware, name }. */
-  async identify({ timeoutMs }) {
-    const answer = plainOf(jsonOf(await this.call({ path: PATHS.identify, timeoutMs })));
+  async identify({ timeoutMs, answerBy }) {
+    const answer = plainOf(jsonOf(await this.call({ path: PATHS.identify, timeoutMs, answerBy })));
     const serial = textOf(answer?.sn);
     if (!serial || !new RegExp(`^[0-9A-Za-z]{6,${LIMITS.serialLength}}$`).test(serial)) {
       throw new MyPvError(ERROR_KINDS.PROTOCOL, 'No serial number');
@@ -280,20 +311,20 @@ export class LocalClient extends BaseClient {
     return { serial, firmware: textOf(answer.fwversion), name: textOf(answer.device) };
   }
 
-  async readSetup({ timeoutMs }) {
-    const answer = jsonOf(await this.call({ path: PATHS.setup, timeoutMs }));
+  async readSetup({ timeoutMs, answerBy }) {
+    const answer = jsonOf(await this.call({ path: PATHS.setup, timeoutMs, answerBy }));
     if (!plainOf(answer)) throw new MyPvError(ERROR_KINDS.PROTOCOL, 'Not an object');
     return answer;
   }
 
-  async readData({ timeoutMs }) {
-    const answer = jsonOf(await this.call({ path: PATHS.data, timeoutMs }));
+  async readData({ timeoutMs, answerBy }) {
+    const answer = jsonOf(await this.call({ path: PATHS.data, timeoutMs, answerBy }));
     if (!plainOf(answer)) throw new MyPvError(ERROR_KINDS.PROTOCOL, 'Not an object');
     return answer;
   }
 
   /** setup.jsn?key=value (GET over HTTP, POST body over HTTPS): the echo of the settings. */
-  async writeOnce(key, value, { timeoutMs, startBy, beforeSend }) {
+  async writeOnce(key, value, { answerBy, startBy, beforeSend }) {
     const pair = `${encodeURIComponent(key)}=${value}`;
     const response = this.secure
       ? await this.call({
@@ -301,11 +332,11 @@ export class LocalClient extends BaseClient {
           path: PATHS.setup,
           body: pair,
           contentType: 'application/x-www-form-urlencoded',
-          timeoutMs,
+          answerBy,
           startBy,
           beforeSend,
         })
-      : await this.call({ path: `${PATHS.setup}?${pair}`, timeoutMs, startBy, beforeSend });
+      : await this.call({ path: `${PATHS.setup}?${pair}`, answerBy, startBy, beforeSend });
     let echo;
     try {
       echo = plainOf(JSON.parse(response.body));
@@ -329,10 +360,12 @@ export class CloudClient extends BaseClient {
     this.label = 'api.my-pv.com';
   }
 
-  async call({ method = 'GET', path, body, timeoutMs, startBy = Infinity, beforeSend }) {
+  async call({ method = 'GET', path, body, timeoutMs, answerBy, startBy = Infinity, beforeSend }) {
+    const deadline = this.deadlineOf({ timeoutMs, answerBy });
     if (this.now() > startBy) {
       throw new MyPvError(ERROR_KINDS.LATE, 'Too late to send');
     }
+    const left = this.timeLeft(deadline);
     runBeforeSend(beforeSend);
     const response = await this.transport({
       protocol: 'https',
@@ -345,7 +378,7 @@ export class CloudClient extends BaseClient {
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body,
-      timeoutMs,
+      timeoutMs: left,
       trust: 'verify',
     });
     if (response.status < 200 || response.status > 299) {
@@ -355,28 +388,37 @@ export class CloudClient extends BaseClient {
   }
 
   /** isOnline: the device is known by the cloud and online. */
-  async identify({ timeoutMs }) {
-    const answer = jsonOf(await this.call({ path: PATHS.cloudOnline(this.serial), timeoutMs }));
+  async identify({ timeoutMs, answerBy }) {
+    const answer = jsonOf(
+      await this.call({ path: PATHS.cloudOnline(this.serial), timeoutMs, answerBy }),
+    );
     if (answer?.isOnline !== true) {
       throw new MyPvError(ERROR_KINDS.OFFLINE, 'Device offline in the cloud');
     }
     return { serial: this.serial, firmware: undefined, name: undefined };
   }
 
-  async readSetup({ timeoutMs }) {
-    const answer = jsonOf(await this.call({ path: PATHS.cloudSetup(this.serial), timeoutMs }));
+  async readSetup({ timeoutMs, answerBy }) {
+    const answer = jsonOf(
+      await this.call({ path: PATHS.cloudSetup(this.serial), timeoutMs, answerBy }),
+    );
     const setup = answer && typeof answer === 'object' ? answer.setup : undefined;
     if (!plainOf(setup)) throw new MyPvError(ERROR_KINDS.PROTOCOL, 'No setup');
     return setup;
   }
 
   /** The measures, and the charge of the tank (a secondary endpoint: its failure is ignored). */
-  async readData({ timeoutMs }) {
-    const answer = jsonOf(await this.call({ path: PATHS.cloudData(this.serial), timeoutMs }));
+  async readData({ timeoutMs, answerBy }) {
+    const deadline = this.deadlineOf({ timeoutMs, answerBy });
+    const answer = jsonOf(
+      await this.call({ path: PATHS.cloudData(this.serial), answerBy: deadline }),
+    );
     const data = plainOf(answer);
     if (!data) throw new MyPvError(ERROR_KINDS.PROTOCOL, 'Not an object');
     try {
-      const soc = jsonOf(await this.call({ path: PATHS.cloudSoc(this.serial), timeoutMs }));
+      const soc = jsonOf(
+        await this.call({ path: PATHS.cloudSoc(this.serial), answerBy: deadline }),
+      );
       const percentage = soc && typeof soc === 'object' ? soc.percentage : undefined;
       if (percentage !== undefined) {
         data.soc = percentage;
@@ -390,12 +432,12 @@ export class CloudClient extends BaseClient {
   }
 
   /** PUT setup {"key": value}: the cloud answers "ok". */
-  async writeOnce(key, value, { timeoutMs, startBy, beforeSend }) {
+  async writeOnce(key, value, { answerBy, startBy, beforeSend }) {
     const response = await this.call({
       method: 'PUT',
       path: PATHS.cloudSetup(this.serial),
       body: JSON.stringify({ [key]: value }),
-      timeoutMs,
+      answerBy,
       startBy,
       beforeSend,
     });

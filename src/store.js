@@ -8,8 +8,11 @@
 //     of the next try (never more than 1 h away): a restart never loops on
 //     refused credentials;
 //   - the certificate fingerprint pinned per device address (trust on first use);
-//   - the serial number last read at the local address (the device of the
-//     "Stop the boost" button before the first read after a restart).
+//   - the serial number last read per target (the device of the "Stop the
+//     boost" button, the status and the Discovery before the first read
+//     after a restart);
+//   - when the last read of the target started (no read sooner than the
+//     interval, whatever restarts or clicks).
 // Never a password, a token nor a cookie. The file is readable by the
 // container user only (0600).
 // -----------------------------------------------------------------------------
@@ -64,33 +67,60 @@ const TARGET = /^(local:[0-9a-z.-]{1,253}:\d{1,5}|cloud:[0-9a-z]{6,32})$/;
 const FINGERPRINT = /^([0-9A-F]{2}:){31}[0-9A-F]{2}$/;
 const SERIAL = /^[0-9A-Za-z]{6,32}$/;
 
-/** A map of own keys, 8 entries at most, keys and values checked. */
+/** A map of own keys, the 8 newest entries (the last ones written), keys and values checked. */
 function mapOf(raw, keyPattern, valuePattern) {
   const out = Object.create(null);
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return out;
   }
-  for (const [key, value] of Object.entries(raw).slice(0, 8)) {
-    if (keyPattern.test(key) && typeof value === 'string' && valuePattern.test(value)) {
-      out[key] = value;
-    }
+  const valid = Object.entries(raw).filter(
+    ([key, value]) => keyPattern.test(key) && typeof value === 'string' && valuePattern.test(value),
+  );
+  for (const [key, value] of valid.slice(-8)) {
+    out[key] = value;
   }
   return out;
 }
 
 /**
+ * Sets one entry of such a map as the newest one (moved last), so the
+ * current target is never the one dropped past 8 entries.
+ */
+export function setNewest(map, key, value) {
+  delete map[key];
+  map[key] = value;
+}
+
+/**
  * The persisted state, repaired and bounded:
- * `{ pause: { until } | null, block: { kind, target, until } | null,
- *    pins: { [target]: fingerprint }, serials: { [target]: serial } }`.
+ * `{ pause: { target, until } | null, block: { kind, target, until } | null,
+ *    last: { target, at, ok } | null, pins: { [target]: fingerprint },
+ *    serials: { [target]: serial } }`. `last`: the start of the last read
+ * of a target (never in the future), so that no restart, save or button reads
+ * sooner than the interval; `ok`: it succeeded (the status and the Discovery
+ * are shown from the serial kept, before the next read).
  */
 export function normalizeMemory(raw, now) {
   const object = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const until = object.pause?.until;
+  const pause = object.pause;
+  const until = pause?.until;
   const block = object.block;
+  const last = object.last;
   return {
     pause:
-      Number.isFinite(until) && until > now
-        ? { until: Math.min(until, now + TIMINGS.pauseMax) }
+      Number.isFinite(until) &&
+      until > now &&
+      typeof pause.target === 'string' &&
+      TARGET.test(pause.target)
+        ? { target: pause.target, until: Math.min(until, now + TIMINGS.pauseMax) }
+        : null,
+    last:
+      last &&
+      typeof last === 'object' &&
+      typeof last.target === 'string' &&
+      TARGET.test(last.target) &&
+      Number.isFinite(last.at)
+        ? { target: last.target, at: Math.min(last.at, now), ok: last.ok === true }
         : null,
     block:
       block &&

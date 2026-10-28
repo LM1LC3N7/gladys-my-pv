@@ -18,8 +18,8 @@
       "type": "section",
       "label": { "en": "Your my-PV device", "fr": "Votre appareil my-PV" },
       "description": {
-        "en": "Shows your my-PV solar power diverter (AC•THOR, AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR) in Gladys: heating power, tank temperatures, meter power, hot water charge and status. Local first: enter the IP address of the device (give it a fixed address in your router), and its password if its web interface has one. The my-PV cloud is optional: choose it only if the device is not on your network. Save, then add the device from the Discovery tab. The hot water setpoint and the boost start are off by default and capped (55 °C by default, never more than 60 °C); stopping the boost is always allowed. Never tested with a real device. Unofficial integration, not affiliated with my-PV.",
-        "fr": "Affiche votre routeur solaire my-PV (AC•THOR, AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR) dans Gladys : puissance de chauffe, températures du ballon, puissance au compteur, charge du ballon et état. Le local d'abord : saisissez l'adresse IP de l'appareil (donnez-lui une adresse fixe dans votre box), et son mot de passe si son interface web en a un. Le cloud my-PV est facultatif : choisissez-le seulement si l'appareil n'est pas sur votre réseau. Enregistrez, puis ajoutez l'appareil depuis l'onglet Découverte. La consigne d'eau chaude et le démarrage du boost sont désactivés par défaut et plafonnés (55 °C par défaut, jamais plus de 60 °C) ; arrêter le boost est toujours permis. Jamais testé avec un vrai appareil. Intégration non officielle, sans lien avec my-PV."
+        "en": "Shows your my-PV solar power diverter (AC•THOR, AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR) in Gladys: heating power, tank temperatures, meter power, hot water charge and status. Local first: enter the IP address of the device (give it a fixed address in your router), and its password if its web interface has one. The my-PV cloud is optional: choose it only if the device is not on your network. Save, then add the device from the Discovery tab. The hot water setpoint and the boost start are off by default and capped (65 °C by default, never more than 65 °C); stopping the boost is always allowed. Never tested with a real device. Unofficial integration, not affiliated with my-PV.",
+        "fr": "Affiche votre routeur solaire my-PV (AC•THOR, AC•THOR 9s, AC ELWA 2, SOL•THOR, HEA•THOR) dans Gladys : puissance de chauffe, températures du ballon, puissance au compteur, charge du ballon et état. Le local d'abord : saisissez l'adresse IP de l'appareil (donnez-lui une adresse fixe dans votre box), et son mot de passe si son interface web en a un. Le cloud my-PV est facultatif : choisissez-le seulement si l'appareil n'est pas sur votre réseau. Enregistrez, puis ajoutez l'appareil depuis l'onglet Découverte. La consigne d'eau chaude et le démarrage du boost sont désactivés par défaut et plafonnés (65 °C par défaut, jamais plus de 65 °C) ; arrêter le boost est toujours permis. Jamais testé avec un vrai appareil. Intégration non officielle, sans lien avec my-PV."
       },
       "links": [
         {
@@ -139,13 +139,13 @@
       "type": "number",
       "label": { "en": "Hot water ceiling (°C)", "fr": "Plafond de l'eau chaude (°C)" },
       "description": {
-        "en": "Scalding risk: Gladys never sets the hot water above this temperature. 55 °C by default, from 40 to 60 °C (never more than 60 °C, whatever is typed).",
-        "fr": "Risque de brûlure : Gladys ne règle jamais l'eau chaude au-dessus de cette température. 55 °C par défaut, de 40 à 60 °C (jamais plus de 60 °C, quoi qu'on saisisse)."
+        "en": "Scalding risk: Gladys never sets the hot water above this temperature. 65 °C by default, from 40 to 65 °C (never more than 65 °C, whatever is typed).",
+        "fr": "Risque de brûlure : Gladys ne règle jamais l'eau chaude au-dessus de cette température. 65 °C par défaut, de 40 à 65 °C (jamais plus de 65 °C, quoi qu'on saisisse)."
       },
       "required": false,
-      "default": 55,
+      "default": 65,
       "min": 40,
-      "max": 60
+      "max": 65
     },
     {
       "key": "poll_interval",

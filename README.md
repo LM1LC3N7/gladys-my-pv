@@ -11,7 +11,7 @@ Unofficial, not affiliated with my-PV. **Never tested with a real device.**
   power ("surplus"), temperatures 1 to 4, device temperature, hot water
   charge, heating enabled, boost running, hot water and boost setpoints.
 - Commands, off by default: the hot water setpoint and "Start the boost",
-  capped (55 °C by default, never above 60 °C; a boost is refused while the
+  capped (65 °C by default, never above 65 °C; a boost is refused while the
   boost setpoint of the device is above the ceiling). "Stop the boost" is
   always allowed, even during a 429 pause.
 - Errors: refused credentials stop the reads (kept in `/data`, a new try an

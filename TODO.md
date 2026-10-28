@@ -13,9 +13,9 @@
   a device not on the network. Same device external id in both
   (`my-pv:<serial in lower case>`).
 - **Two options, both off**: `allow_setpoint` and `allow_boost`. Hot water
-  ceiling 55 °C by default, 40 to 60 °C, never above 60 °C (`DHW_CAP`), checked
+  ceiling 65 °C by default, 40 to 65 °C, never above 65 °C (`DHW_CAP`), checked
   on arrival, after the fresh read and in `beforeSend`. The slider stops at
-  60 °C; whole degrees only.
+  65 °C; whole degrees only.
 - **The boost heats up to `ww1boost`**, set on the device: a start is refused
   while `ww1boost` (read just before) is above the ceiling, rather than
   writing `ww1boost` (one more setting written, kept read only in v1).

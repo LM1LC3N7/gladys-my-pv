@@ -56,8 +56,8 @@ at all, so the password never reaches another device; a write is never tried
 again after its deadline, and only on 429; a refused login is not retried
 until an hour later (or a new password); a 429 or a 5xx pauses the reads
 (kept across restarts); only the keys shown are read; values out of a
-plausible range are missing; the hot water setpoint is capped (55 °C by
-default, 60 °C at most), the boost is refused while the boost setpoint of the
+plausible range are missing; the hot water setpoint is capped (65 °C by
+default, 65 °C at most), the boost is refused while the boost setpoint of the
 device is above that ceiling, and each command reads the settings again right
 before writing; the firmware update, factory reset, reboot, legionella and
 network settings of py-mypv are not ported.

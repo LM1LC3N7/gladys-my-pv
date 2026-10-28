@@ -53,8 +53,8 @@ test('the store basics', () => {
       /never\s+tested\s+with\s+a\s+real\s+device|jamais\s+testé\s+avec\s+un\s+vrai\s+appareil/i,
       'say it was never tested',
     );
-    assert.match(docs, /55\s*°C/, 'document the hot water ceiling');
-    assert.match(docs, /60\s*°C/);
+    assert.match(docs, /65\s*°C/, 'document the hot water ceiling');
+    assert.doesNotMatch(docs, /\b(55|60)\s*°C/, 'no old ceiling left');
   }
   assert.match(manifest.config_schema[0].description.fr, /Jamais testé avec un vrai appareil/);
   assert.match(manifest.config_schema[0].description.en, /Never tested with a real device/);
@@ -105,7 +105,7 @@ test('the configuration matches the code; the commands are off; the ceiling boun
     ],
     [DHW_CAP.default, DHW_CAP.min, DHW_CAP.max],
   );
-  assert.deepEqual([DHW_CAP.default, DHW_CAP.max], [55, 60]);
+  assert.deepEqual([DHW_CAP.default, DHW_CAP.max], [65, 65]);
   assert.deepEqual(
     [fields.poll_interval.min, fields.poll_interval.max],
     [POLL_INTERVAL.min, POLL_INTERVAL.max],

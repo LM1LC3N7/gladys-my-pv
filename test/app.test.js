@@ -138,7 +138,7 @@ test('one read: the device, its features, then its states', async (t) => {
     assert.notEqual(f.category, 'switch');
   }
   const target = device.features.find((f) => f.external_id === feature('target-temperature'));
-  assert.equal(target.max, 60, 'the slider stops at 60 °C');
+  assert.equal(target.max, 65, 'the slider stops at 65 °C');
   assert.equal(last(gladys, 'heating-power'), 1200);
   assert.equal(last(gladys, 'temperature-1'), 48.2);
   assert.equal(last(gladys, 'target-temperature'), 50);
@@ -182,18 +182,18 @@ test('the setpoint, allowed: read again just before, then written in tenths', as
   assert.equal(last(gladys, 'target-temperature'), 52);
 });
 
-test('the setpoint ceiling: 55 °C by default, never above 60 °C, checked again before sending', async (t) => {
+test('the setpoint ceiling: 65 °C by default, never above 65 °C, checked again before sending', async (t) => {
   const { server, press, gladys } = await setup(t, { config: SETPOINT });
-  assert.match(await failure(press('target-temperature', 56)), /plafonnée à 55 °C/);
-  for (const bad of [61, 95, '', null, 'abc', 52.5, true]) {
+  assert.match(await failure(press('target-temperature', 66)), /plafonnée à 65 °C/);
+  for (const bad of [65.5, 66, 95, '', null, 'abc', 52.5, true]) {
     await failure(press('target-temperature', bad));
   }
   assert.deepEqual(server.writes(), []);
-  // A ceiling of 70 typed is 60.
+  // A ceiling of 70 typed is 65.
   await gladys.fake.configUpdated({ ...SETPOINT, dhw_max_temperature: 70 });
   await settle();
-  await ok(press('target-temperature', 60));
-  assert.match(await failure(press('target-temperature', 61)), /60 °C/);
+  await ok(press('target-temperature', 65));
+  assert.match(await failure(press('target-temperature', 66)), /65 °C/);
   // The ceiling lowered while the fresh read runs: refused unsent.
   server.device.readDelay = 500;
   const ack = gladys.fake.setValue(
@@ -206,7 +206,16 @@ test('the setpoint ceiling: 55 °C by default, never above 60 °C, checked again
   t.mock.timers.tick(600);
   await settle();
   assert.match(await failure(ack), /plafonnée à 50 °C/);
-  assert.deepEqual(server.writes(), ['ww1target=600']);
+  assert.deepEqual(server.writes(), ['ww1target=650']);
+});
+
+test('a lower ceiling chosen in the configuration wins over 65 °C', async (t) => {
+  const { server, press } = await setup(t, { config: { ...SETPOINT, dhw_max_temperature: 55 } });
+  assert.match(await failure(press('target-temperature', 56)), /plafonnée à 55 °C/);
+  assert.match(await failure(press('target-temperature', 65)), /plafonnée à 55 °C/);
+  assert.deepEqual(server.writes(), []);
+  await ok(press('target-temperature', 55));
+  assert.deepEqual(server.writes(), ['ww1target=550']);
 });
 
 test('the option turned off during the fresh read: refused before the request leaves', async (t) => {
@@ -244,10 +253,30 @@ test('the boost start: decided on the settings and measures read just before', a
 
 test('the boost start is refused when the boost setpoint of the device is above the ceiling', async (t) => {
   const server = fakeMyPv();
-  server.device.setup.ww1boost = 650;
+  server.device.setup.ww1boost = 655;
   const { press } = await setup(t, { config: BOOST, server });
-  assert.match(await failure(press('boost-start')), /consigne du boost de l'appareil \(65 °C\)/);
+  assert.match(
+    await failure(press('boost-start')),
+    /consigne du boost de l'appareil \(65\.5 °C\) dépasse le plafond de l'eau chaude \(65 °C\)/,
+  );
   assert.deepEqual(server.writes(), []);
+});
+
+test('a boost setpoint of 65 °C starts under the default ceiling, not under a lower one', async (t) => {
+  const server = fakeMyPv();
+  server.device.setup.ww1boost = 650;
+  const { press, gladys } = await setup(t, { config: BOOST, server });
+  await ok(press('boost-start', 1, 200));
+  assert.deepEqual(server.writes(), ['bststrt=1']);
+  assert.equal(server.device.data.boostactive, 1);
+  server.device.data.boostactive = 0;
+  await gladys.fake.configUpdated({ ...BOOST, dhw_max_temperature: 60 });
+  await settle();
+  assert.match(
+    await failure(press('boost-start')),
+    /consigne du boost de l'appareil \(65 °C\) dépasse le plafond de l'eau chaude \(60 °C\)/,
+  );
+  assert.deepEqual(server.writes(), ['bststrt=1']);
 });
 
 test('the boost start is refused without boost mode, device off, or without sensor 1', async (t) => {

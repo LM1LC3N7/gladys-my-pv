@@ -84,13 +84,13 @@ export const POLL_INTERVAL = {
 
 /**
  * The hot water ceiling, in °C (scalding risk): the configuration chooses it
- * between `min` and `max`, 55 °C by default; nothing above 60 °C is ever
+ * between `min` and `max`, 65 °C by default; nothing above 65 °C is ever
  * set, whatever the configuration or the device would accept (95 °C).
  */
 export const DHW_CAP = {
   min: 40,
-  max: 60,
-  default: 55,
+  max: 65,
+  default: 65,
 };
 
 /** The setpoint the slider offers and a command may set, in whole °C. */

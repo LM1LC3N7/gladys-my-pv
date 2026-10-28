@@ -57,8 +57,8 @@ L'appareil garde le même identifiant en local et par le cloud : passer de l'un
 
 ## Commandes de l'eau chaude (désactivées par défaut)
 
-Risque de brûlure : l'eau chaude est **plafonnée à 55 °C par défaut**
-(réglable de 40 à 60 °C, **jamais plus de 60 °C**, quoi qu'on saisisse).
+Risque de brûlure : l'eau chaude est **plafonnée à 65 °C par défaut**
+(réglable de 40 à 65 °C, **jamais plus de 65 °C**, quoi qu'on saisisse).
 
 - **Autoriser la consigne d'eau chaude** : Gladys peut changer la consigne
   (degrés entiers, de 10 °C au plafond).

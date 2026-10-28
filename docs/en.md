@@ -53,8 +53,8 @@ locally and through the cloud: switching keeps its history.
 
 ## Hot water commands (off by default)
 
-Scalding risk: hot water is **capped at 55 °C by default** (from 40 to 60 °C,
-**never more than 60 °C**, whatever is typed).
+Scalding risk: hot water is **capped at 65 °C by default** (from 40 to 65 °C,
+**never more than 65 °C**, whatever is typed).
 
 - **Allow the hot water setpoint**: Gladys may change the setpoint (whole
   degrees, from 10 °C to the ceiling).

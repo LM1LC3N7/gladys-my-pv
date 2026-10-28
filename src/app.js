@@ -8,7 +8,7 @@
 // The commands follow the rules learnt on the previous modules:
 //   - the hot water setpoint and "Start the boost" are refused unless their
 //     option allows them (both off by default); the setpoint is never above
-//     the configured ceiling (55 °C by default) nor 60 °C, and the boost is
+//     the configured ceiling (65 °C by default) nor 65 °C, and the boost is
 //     refused when the boost setpoint of the device is above that ceiling;
 //   - "Stop the boost" is protective: never refused by an option, a command
 //     in flight nor a 429/5xx pause (then one try, no retry); it withdraws a

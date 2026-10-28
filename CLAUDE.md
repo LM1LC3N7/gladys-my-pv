@@ -53,7 +53,7 @@ test/fixtures/         fake my-PV device and cloud
   roles of `FEATURES`. Never rename one. A republished device never loses a
   feature (`keepCreatedFeatures`).
 - **Hot water**: the setpoint and the boost start stay off by default, behind
-  their own option, capped by `DHW_CAP` (55 °C default, 60 °C max), checked on
+  their own option, capped by `DHW_CAP` (65 °C default, 65 °C max), checked on
   arrival, after the fresh read and in `beforeSend`. "Stop the boost" is never
   blocked (option, command in flight, pause). Never a `switch` nor a writable
   `binary`.

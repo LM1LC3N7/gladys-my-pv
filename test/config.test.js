@@ -106,17 +106,20 @@ test('the commands are allowed by true only', () => {
   }
 });
 
-test('the hot water ceiling: 55 °C by default, whole degrees from 40 to 60, never above 60', () => {
+test('the hot water ceiling: 65 °C by default, whole degrees from 40 to 65, never above 65', () => {
   assert.equal(normalizeConfig({}).dhwCap, DHW_CAP.default);
-  assert.equal(DHW_CAP.default, 55);
+  assert.equal(DHW_CAP.default, 65);
+  assert.equal(DHW_CAP.max, 65);
   assert.equal(dhwCapOf(50), 50);
   assert.equal(dhwCapOf('52'), 52);
   assert.equal(dhwCapOf(58.9), 58, 'rounded down, never up');
-  assert.equal(dhwCapOf(65), 60);
-  assert.equal(dhwCapOf(1e9), 60);
+  assert.equal(dhwCapOf(65), 65);
+  assert.equal(dhwCapOf(65.5), 65, '65.5 brought back to 65');
+  assert.equal(dhwCapOf(66), 65);
+  assert.equal(dhwCapOf(1e9), 65);
   assert.equal(dhwCapOf(20), 40);
   for (const value of ['', ' ', null, undefined, 'abc', NaN, Infinity, {}, [], true]) {
-    assert.equal(dhwCapOf(value), 55, String(value));
+    assert.equal(dhwCapOf(value), 65, String(value));
   }
 });
 
